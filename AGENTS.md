@@ -45,8 +45,10 @@ Work inside the directories of your branch. If you need a change elsewhere, say 
 
 <!-- TODO: fill in after the backend stack is chosen (spec §14). Do not guess. -->
 - Start everything: `docker compose -f deploy/docker-compose.yml up`
-- Run tests: TODO
-- Lint / format: TODO
+- Smoke-test a running stack: `deploy/smoke-test.sh`
+- Run tests: `uv run pytest` (DB tests need `TEST_DATABASE_URL`, see README)
+- Lint / format: `uv run ruff check .` / `uv run ruff format .`
+- Apply migrations: `DATABASE_URL=... uv run python -m db.migrate` (compose does it on `up`)
 - Load test: TODO
 
 ## Invariants (do not break these)
