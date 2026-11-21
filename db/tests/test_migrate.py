@@ -1,11 +1,10 @@
-import os
-import uuid
 from pathlib import Path
 
 import psycopg
 import pytest
 
 from db.migrate import MIGRATIONS_DIR, MigrationError, discover, migrate
+from db.testing import TEST_DATABASE_URL, temporary_database
 
 # --- file discovery (no database needed) -------------------------------------------------------------
 
@@ -43,23 +42,14 @@ def test_repo_migrations_are_valid():
 
 # --- applying migrations (needs TEST_DATABASE_URL) ----------------------------------------------------
 
-TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
-
 
 @pytest.fixture
 def database():
     """A fresh, empty database created for one test and dropped afterwards."""
     if not TEST_DATABASE_URL:
         pytest.skip("TEST_DATABASE_URL not set")
-    name = f"test_migrate_{uuid.uuid4().hex[:12]}"
-    with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as admin:
-        admin.execute(f'CREATE DATABASE "{name}"')
-    conninfo = psycopg.conninfo.make_conninfo(TEST_DATABASE_URL, dbname=name)
-    try:
+    with temporary_database("test_migrate") as conninfo:
         yield conninfo
-    finally:
-        with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as admin:
-            admin.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
 
 
 @pytest.mark.db
