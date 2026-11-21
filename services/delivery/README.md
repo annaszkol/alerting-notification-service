@@ -13,5 +13,6 @@ Processor usage:
 
 ```python
 from services.delivery.planning import plan_notifications
+
 result = plan_notifications(conn, AlertForPlanning(...), RuleForPlanning(...), now)  # no commit inside
 ```
