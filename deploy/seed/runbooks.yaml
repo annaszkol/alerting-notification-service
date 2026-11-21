@@ -1,0 +1,82 @@
+# Demo runbooks (owner B; spec §7, §13 tests 4, 12, 13). Each keeps the original text and the canonical form
+# (contracts/runbook.schema.json). Until A's importer (`feat/runbook-import`) lands, the canonical form is written
+# here by hand, following the import rules of spec §7. `approved_by` must be a manager of the owner team: the demo
+# starts with approved runbooks, so their actions can run.
+#
+# Rules link runbooks with `runbooks: [...]` (rules are A's seed).
+
+runbooks:
+  - id: settlement-timeout
+    owner: settlements
+    title: Settlement timeout
+    format: yaml
+    approved_by: carol
+    original: |
+      runbook: settlement-timeout
+      match: { all: [ { type: WORKFLOW_FAILED }, { error.code: TIMEOUT } ] }
+      steps:
+        - check: "Is counterparty-service healthy?"
+          action: http_get
+          url: http://counterparty-service/health
+        - action: retry_workflow
+          params: { workflowId: "{{workflowId}}" }
+          if: fails twice
+          then: escalate
+        - action: escalate
+          team: counterparty-support
+          approval: required
+    canonical:
+      id: settlement-timeout
+      owner: { team: settlements }
+      format: yaml
+      mode: auto
+      match: { all: [ { type: WORKFLOW_FAILED }, { error.code: TIMEOUT } ] }
+      steps:
+        - { id: check-counterparty, kind: action, title: "Is counterparty-service healthy?", action: http_get,
+            params: { url: "http://counterparty-service/health" }, approval: none }
+        - { id: retry, kind: action, title: "Retry workflow {{workflowId}}", action: retry_workflow,
+            params: { workflowId: "{{workflowId}}" }, approval: none, attempts: 2, resolves: true, on_failure: escalate }
+        - { id: escalate, kind: action, title: "Escalate to counterparty-support", action: escalate,
+            params: { team: counterparty-support }, approval: required }
+
+  - id: high-error-rate-payments
+    owner: payments
+    title: High error rate in payments-api
+    format: markdown
+    approved_by: erin
+    original: |
+      1. Open the payments-api dashboard and check which endpoint fails.
+      2. Check recent deploys of payments-api; roll back if one started the errors.
+      3. Check the database connection pool (saturation, timeouts).
+      4. Post a status update in #payments-incidents.
+    canonical:
+      id: high-error-rate-payments
+      owner: { team: payments }
+      format: markdown
+      mode: manual
+      steps:
+        - { id: step-1, kind: text, text: "Open the payments-api dashboard and check which endpoint fails." }
+        - { id: step-2, kind: text, text: "Check recent deploys of payments-api; roll back if one started the errors." }
+        - { id: step-3, kind: text, text: "Check the database connection pool (saturation, timeouts)." }
+        - { id: step-4, kind: text, text: "Post a status update in #payments-incidents." }
+
+  - id: pricing-latency
+    owner: pricing
+    title: Pricing engine latency
+    format: checklist
+    approved_by: grace
+    original: |
+      - [ ] Check quote latency of {{$service}} on the pricing dashboard
+      - [ ] Compare with the other pricing-engine instances
+      - [ ] If only one instance is slow, drain it from the load balancer
+      - [ ] Tell the pricing on-call person what you did
+    canonical:
+      id: pricing-latency
+      owner: { team: pricing }
+      format: checklist
+      mode: manual
+      steps:
+        - { id: item-1, kind: text, checkbox: true, text: "Check quote latency of {{$service}} on the pricing dashboard" }
+        - { id: item-2, kind: text, checkbox: true, text: "Compare with the other pricing-engine instances" }
+        - { id: item-3, kind: text, checkbox: true, text: "If only one instance is slow, drain it from the load balancer" }
+        - { id: item-4, kind: text, checkbox: true, text: "Tell the pricing on-call person what you did" }

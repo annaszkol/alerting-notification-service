@@ -166,6 +166,14 @@ def get_summary(conn: psycopg.Connection, base_url: str, alert_id: int) -> dict[
     return summary(_row(conn, alert_id), base_url)
 
 
+def _runbooks(conn: psycopg.Connection, row: dict[str, Any]) -> list[dict[str, Any]]:
+    """AlertRunbook list, rendered by B (services/executor/runbooks.py)."""
+    from services.api.routers.runbooks import actions
+    from services.executor.runbooks import runbooks_for_alert
+
+    return runbooks_for_alert(conn, row["id"], row.get("rule_id"), row.get("first_event") or {}, actions())
+
+
 def get_detail(conn: psycopg.Connection, base_url: str, alert_id: int) -> dict[str, Any]:
     row = _row(conn, alert_id)
     cur = conn.cursor(row_factory=dict_row)
@@ -212,7 +220,7 @@ def get_detail(conn: psycopg.Connection, base_url: str, alert_id: int) -> dict[s
             }
             for n in notifications
         ],
-        "runbooks": [],  # filled in by feat/web-runbook-view
+        "runbooks": _runbooks(conn, row),
     }
 
 

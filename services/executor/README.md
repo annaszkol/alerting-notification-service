@@ -7,6 +7,7 @@ running more instances (step runs are claimed with `SKIP LOCKED` + lease; schedu
 | --- | --- |
 | `engine.py` | run state machine; API entry points `start_run`, `run_step`, `mark_done`, `approve`, `reject`, `cancel_run` |
 | `scheduler.py` | every 10 s: resolve silent alerts (`autoResolveAfter`), delete `processed_events` older than 24 h |
+| `runbooks.py` | runbooks / runs / approvals as the API shows them: validation against the contract, rendered steps, run and approval views |
 | `history.py` | alert history: runbook runs, steps, approvals, automatic resolves → `audit_log` + `NOTIFY` |
 | `alerts.py` | what the executor reads / writes on `alerts` (A's table, spec §8 columns) |
 | `templating.py` | stand-in renderer for step params until the shared templater lands |

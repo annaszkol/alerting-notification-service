@@ -19,4 +19,8 @@ use the reserved `example.test` domain and land in Mailpit.
   `docker compose -f deploy/docker-compose.yml run --rm seed python -m deploy.seed.load --reset`.
 - The whole file is validated first (unknown members, on-call outside the team, bad channels / windows / durations,
   duplicate phones…) and loaded in one transaction.
-- Sources, mappings, rules and runbooks are A's tables; their seed files come with those branches.
+- `runbooks.yaml`: the spec's runbooks in canonical form with their original text, approved by a manager of the owner
+  team: `settlement-timeout` (YAML, settlements, mode auto: health check → retry ×2 → escalation with approval, test 12),
+  `high-error-rate-payments` (Markdown, payments, test 4) and `pricing-latency` (checklist, pricing, test 13).
+  Rules link them with `runbooks: [...]`.
+- Sources, mappings and rules are A's tables; their seed files come with those branches.
