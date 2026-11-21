@@ -145,6 +145,32 @@ def delete(conn: psycopg.Connection, runbook_id: str) -> None:
 
 
 @plain_rows
+def create(
+    conn: psycopg.Connection,
+    canonical: Mapping[str, Any],
+    *,
+    owner_team: str,
+    title: str,
+    fmt: str,
+    original: str,
+    actor: str,
+) -> dict[str, Any]:
+    """Save an imported runbook, not approved: its actions run only after a manager approves it (spec §7)."""
+    if errors := validate(canonical):
+        raise Invalid(errors)
+    with conn.cursor(row_factory=dict_row) as cur:
+        row = cur.execute(
+            """INSERT INTO runbooks (id, owner_team, title, format, original, canonical, mode, updated_by)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING RETURNING *""",
+            (canonical["id"], owner_team, title, fmt, original, Jsonb(dict(canonical)), canonical.get("mode", "manual"),
+             actor),
+        ).fetchone()  # fmt: skip
+    if row is None:
+        raise Conflict(f"runbook {canonical['id']} already exists")
+    return to_api(row)
+
+
+@plain_rows
 def upsert(
     conn: psycopg.Connection,
     canonical: Mapping[str, Any],

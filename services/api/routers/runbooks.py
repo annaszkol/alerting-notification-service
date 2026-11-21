@@ -80,6 +80,42 @@ def list_runbooks(conn: Conn, _: CurrentUser, team: Annotated[str | None, Query(
     return rb.list_runbooks(conn, team)
 
 
+@router.post("/runbooks/import", tags=["runbooks"])
+def import_runbook(
+    body: dict[str, Any], conn: Conn, user: CurrentUser, response: Response, dryRun: bool = False
+) -> dict[str, Any]:
+    """Original (YAML, Markdown, checklist, text, link) -> canonical form (spec §7). `dryRun` previews only;
+    a saved runbook is not approved yet. Manager of the owner team."""
+    from services.executor.importer import ImportError_
+    from services.executor.importer import import_runbook as to_canonical
+
+    if errors := schemas.errors("RunbookImportRequest", body):
+        raise invalid(errors)
+    team = body["owner"]["team"]
+    if not user.is_manager(team):
+        raise forbidden(f"manager of team {team} required")
+    title = body.get("title") or body["id"]
+    try:
+        canonical = to_canonical(body["id"], team, body["format"], body["original"], body.get("title"))
+    except ImportError_ as exc:
+        raise invalid([{"path": "original", "message": str(exc)}]) from exc
+    if errors := rb.validate(canonical):
+        raise invalid(errors)
+    if dryRun:
+        return {
+            "id": body["id"], "owner": {"team": team}, "title": title, "format": body["format"],
+            "original": body["original"], "canonical": canonical, "mode": canonical["mode"], "approvedBy": None,
+            "approvedAt": None, "updatedBy": None, "updatedAt": None,
+        }  # fmt: skip
+    try:
+        saved = rb.create(conn, canonical, owner_team=team, title=title, fmt=body["format"],
+                          original=body["original"], actor=user.id)  # fmt: skip
+    except (rb.Conflict, rb.Invalid) as exc:
+        raise _map(exc) from exc
+    response.status_code = 201
+    return saved
+
+
 @router.get("/runbooks/{runbookId}", tags=["runbooks"])
 def get_runbook(runbookId: str, conn: Conn, _: CurrentUser) -> dict[str, Any]:
     try:
