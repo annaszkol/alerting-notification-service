@@ -4,9 +4,12 @@
 import { ActionIcon, Autocomplete, Badge, Button, Card, Group, SegmentedControl, Select, Stack, Text, Textarea, TextInput } from "@mantine/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { Condition } from "../api/types";
+import { SEVERITIES, type Condition } from "../api/types";
 import {
   conditionProblems,
+  fieldLabel,
+  fieldPath,
+  FIELD_LABEL,
   group,
   leaf,
   negate,
@@ -77,11 +80,11 @@ function NodeView({ node, ctx, isRoot }: { node: CondNode; ctx: Ctx; isRoot?: bo
         <Card withBorder padding="xs" style={{ borderColor: "var(--mantine-color-red-4)" }}>
           <Group justify="space-between" mb={6}>
             <Badge color="red" variant="light">
-              NOT (must not hold)
+              Must NOT be true
             </Badge>
             {!ctx.readOnly && (
               <Button size="compact-xs" variant="subtle" onClick={() => ctx.edit(node.id, (n) => (n.kind === "not" ? n.child : n))}>
-                Remove NOT
+                Undo exclude
               </Button>
             )}
           </Group>
@@ -101,16 +104,22 @@ function GroupView({ node, ctx, isRoot }: { node: Extract<CondNode, { kind: "gro
     <Card withBorder padding="xs" bg={isRoot ? undefined : "var(--mantine-color-default-hover)"}>
       <Group justify="space-between" mb={6} wrap="wrap">
         <Group gap="xs">
+          <Text size="sm" fw={500}>
+            {isRoot ? "Events where" : "Where"}
+          </Text>
           <SegmentedControl
             size="xs"
             disabled={ctx.readOnly}
             value={node.op}
             onChange={(op) => ctx.edit(node.id, (n) => (n.kind === "group" ? { ...n, op: op as "all" | "any" } : n))}
             data={[
-              { value: "all", label: "ALL of these (AND)" },
-              { value: "any", label: "ANY of these (OR)" },
+              { value: "all", label: "all" },
+              { value: "any", label: "any" },
             ]}
           />
+          <Text size="sm" fw={500}>
+            of these are true
+          </Text>
           {problem && (
             <Text size="xs" c="red">
               {problem}
@@ -137,12 +146,19 @@ function GroupView({ node, ctx, isRoot }: { node: Extract<CondNode, { kind: "gro
         )}
       </Group>
       <Stack gap={6}>
-        {node.children.map((child) => (
-          <NodeView key={child.id} node={child} ctx={ctx} />
+        {node.children.map((child, i) => (
+          <Group key={child.id} gap={8} align="start" wrap="nowrap">
+            <Text size="xs" c="dimmed" w={26} ta="right" mt={6} tt="uppercase" fw={700} style={{ flexShrink: 0 }}>
+              {i === 0 ? "" : node.op === "all" ? "and" : "or"}
+            </Text>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <NodeView node={child} ctx={ctx} />
+            </div>
+          </Group>
         ))}
         {node.children.length === 0 && (
           <Text size="sm" c="dimmed">
-            No conditions yet. Add one with “+ Condition”.
+            {isRoot ? "No conditions: every event matches. Add one with “+ Condition”." : "Empty group. Add a condition."}
           </Text>
         )}
       </Stack>
@@ -152,8 +168,8 @@ function GroupView({ node, ctx, isRoot }: { node: Extract<CondNode, { kind: "gro
 
 function NotButton({ id, ctx }: { id: number; ctx: Ctx }) {
   return (
-    <Button size="compact-xs" variant="subtle" color="red" title="Invert: must NOT hold" onClick={() => ctx.edit(id, (n) => negate(n))}>
-      NOT
+    <Button size="compact-xs" variant="subtle" color="gray" title="Turn this into: must NOT be true" onClick={() => ctx.edit(id, (n) => negate(n))}>
+      Exclude
     </Button>
   );
 }
@@ -171,12 +187,12 @@ function LeafView({ node, ctx }: { node: Extract<CondNode, { kind: "leaf" }>; ct
     <Group gap={6} align="start" wrap="wrap">
       <Autocomplete
         size="xs"
-        placeholder="field, e.g. $severity or error.code"
+        placeholder="Pick a field"
         aria-label="Field"
-        data={ctx.paths}
-        limit={30}
-        value={node.path}
-        onChange={(path) => set({ path })}
+        data={fieldOptions(ctx.paths)}
+        limit={40}
+        value={fieldLabel(node.path)}
+        onChange={(label) => set({ path: fieldPath(label) })}
         error={problem === "Choose a field" ? problem : undefined}
         readOnly={ctx.readOnly}
         style={{ flex: "2 1 200px" }}
@@ -191,13 +207,25 @@ function LeafView({ node, ctx }: { node: Extract<CondNode, { kind: "leaf" }>; ct
         readOnly={ctx.readOnly}
         style={{ flex: "1 1 150px" }}
       />
-      {node.op === "exists" ? (
+      {node.path === "$severity" && !["in", "not_in", "exists", "regex", "glob", "contains"].includes(node.op) ? (
+        <Select
+          size="xs"
+          aria-label="Value"
+          data={SEVERITIES.map((v) => ({ value: v, label: v }))}
+          value={node.text || null}
+          placeholder="pick"
+          allowDeselect={false}
+          onChange={(text) => text && set({ text })}
+          readOnly={ctx.readOnly}
+          style={{ flex: "2 1 180px" }}
+        />
+      ) : node.op === "exists" ? (
         <Select
           size="xs"
           aria-label="Exists"
           data={[
-            { value: "true", label: "yes (field is present)" },
-            { value: "false", label: "no (field is missing)" },
+            { value: "true", label: "yes" },
+            { value: "false", label: "no, it is missing" },
           ]}
           value={node.text === "false" ? "false" : "true"}
           allowDeselect={false}
@@ -235,12 +263,22 @@ function LeafView({ node, ctx }: { node: Extract<CondNode, { kind: "leaf" }>; ct
   );
 }
 
+/** Field suggestions: the common event fields by name first, then the raw fields of the example event. */
+function fieldOptions(paths: string[]) {
+  const common = Object.values(FIELD_LABEL);
+  const raw = [...new Set(paths.filter((p) => !p.startsWith("$")))];
+  return [
+    { group: "Event", items: common },
+    ...(raw.length ? [{ group: "Fields of the example event", items: raw.filter((p) => !common.includes(p)) }] : []),
+  ];
+}
+
 function RawView({ node, ctx }: { node: Extract<CondNode, { kind: "raw" }>; ctx: Ctx }) {
   const [text, setText] = useState(JSON.stringify(node.json, null, 2));
   const [error, setError] = useState<string | null>(null);
   return (
     <Textarea
-      label="Advanced condition (JSON) — the form cannot show this part"
+      label="Custom condition (JSON): this part cannot be shown as a sentence"
       ff="monospace"
       autosize
       minRows={2}

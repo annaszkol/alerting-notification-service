@@ -1,6 +1,6 @@
 // Rule list (spec §9 P1). Everyone sees every rule; team rules are changed by the team's managers, personal
 // rules by their owner, everything by admins (services/api/routers/rules.py).
-import { Anchor, Badge, Button, Group, Loader, SegmentedControl, Stack, Switch, Table, Text, TextInput, Title } from "@mantine/core";
+import { Anchor, Badge, Button, Card, Group, Loader, SegmentedControl, Stack, Switch, Text, TextInput } from "@mantine/core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -11,6 +11,8 @@ import type { RuleDoc } from "../api/types";
 import { ownerLabel, usePermissions } from "../auth/permissions";
 import { ErrorAlert } from "../components/ErrorAlert";
 import { relativeTime } from "../components/time";
+import { PageHeader } from "../components/PageHeader";
+import { describeCondition } from "../rules/condition";
 import { routeSummary } from "../rules/ruleDoc";
 
 export function Rules() {
@@ -33,20 +35,25 @@ export function Rules() {
     .filter((r) => !q || r.id.includes(q) || (r.present?.title ?? "").toLowerCase().includes(q) || ownerLabel(r.owner).includes(q));
 
   return (
-    <Stack>
-      <Group justify="space-between" align="end">
-        <Title order={2}>Rules</Title>
-        <Button component={Link} to="/rules/new">
-          New rule
-        </Button>
-      </Group>
-      <Text size="sm" c="dimmed">
-        {perms.isAdmin
+    <Stack gap="md">
+      <PageHeader
+        title="Alert rules"
+        description={
+          <>
+            A rule says which events become alerts and who is told about them: <i>when this happens, notify these people</i>.{" "}
+            {perms.isAdmin
           ? "As an admin you can change every rule."
           : perms.managesAnything
             ? "You can change the rules of the teams you manage and your personal rules."
             : "You can create and change personal rules. Team rules are changed by the team’s managers."}
-      </Text>
+          </>
+        }
+        actions={
+          <Button component={Link} to="/rules/new">
+            New rule
+          </Button>
+        }
+      />
       <Group align="end">
         <SegmentedControl
           value={scope}
@@ -56,74 +63,67 @@ export function Rules() {
             { value: "all", label: "All rules" },
           ]}
         />
-        <TextInput placeholder="Search id, title, owner" value={search} onChange={(e) => setSearch(e.currentTarget.value)} w={260} />
+        <TextInput placeholder="Search rules" value={search} onChange={(e) => setSearch(e.currentTarget.value)} w={260} />
       </Group>
       <ErrorAlert error={rules.error ?? toggle.error} />
       {rules.isLoading && <Loader />}
       {rules.data && shown.length === 0 && <Text c="dimmed">No rules here yet. Create one with “New rule”.</Text>}
-      {shown.length > 0 && (
-        <Table.ScrollContainer minWidth={760}>
-          <Table striped highlightOnHover verticalSpacing="xs">
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>On</Table.Th>
-                <Table.Th>Rule</Table.Th>
-                <Table.Th>Owner</Table.Th>
-                <Table.Th>Notifies</Table.Th>
-                <Table.Th>Changed</Table.Th>
-                <Table.Th />
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {shown.map((r) => {
-                const editable = perms.canEditOwner(r.owner);
-                return (
-                  <Table.Tr key={r.id}>
-                    <Table.Td>
-                      <Switch
-                        aria-label={`Enable ${r.id}`}
-                        checked={r.enabled !== false}
-                        disabled={!editable || (toggle.isPending && toggle.variables?.id === r.id)}
-                        title={editable ? undefined : "Only the owner’s manager or an admin can change this"}
-                        onChange={(e) => toggle.mutate({ id: r.id, enabled: e.currentTarget.checked })}
-                      />
-                    </Table.Td>
-                    <Table.Td>
+      <Stack gap="sm">
+        {shown.map((r) => {
+          const editable = perms.canEditOwner(r.owner);
+          const off = r.enabled === false;
+          return (
+            <Card key={r.id} withBorder padding="md" data-rule={r.id} style={{ opacity: off ? 0.6 : 1 }}>
+              <Group justify="space-between" align="flex-start" wrap="nowrap" gap="md">
+                <Group align="flex-start" wrap="nowrap" gap="md" style={{ minWidth: 0 }}>
+                  <Switch
+                    mt={4}
+                    aria-label={`Enable ${r.id}`}
+                    checked={!off}
+                    disabled={!editable || (toggle.isPending && toggle.variables?.id === r.id)}
+                    title={editable ? (off ? "Turned off" : "Turned on") : "Only the owner’s manager or an admin can change this"}
+                    onChange={(e) => toggle.mutate({ id: r.id, enabled: e.currentTarget.checked })}
+                  />
+                  <Stack gap={4} style={{ minWidth: 0 }}>
+                    <Group gap="xs">
                       <Anchor component={Link} to={`/rules/${r.id}`} fw={600}>
                         {r.id}
                       </Anchor>
-                      {r.present?.title && (
-                        <Text size="xs" c="dimmed" lineClamp={1}>
-                          {r.present.title}
-                        </Text>
-                      )}
-                    </Table.Td>
-                    <Table.Td>
-                      <Badge variant="outline" color={"team" in r.owner ? "blue" : "grape"}>
+                      <Badge variant="light" color={"team" in r.owner ? "indigo" : "grape"} size="sm">
                         {ownerLabel(r.owner)}
                       </Badge>
-                    </Table.Td>
-                    <Table.Td>
-                      <Text size="sm">{routeSummary(r.route)}</Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <Text size="sm" title={r.updatedAt}>
-                        {r.updatedBy}
-                        {r.updatedAt ? `, ${relativeTime(r.updatedAt)}` : ""}
+                      {off && (
+                        <Badge variant="outline" color="gray" size="sm">
+                          off
+                        </Badge>
+                      )}
+                    </Group>
+                    <Text size="sm">
+                      <Text span c="dimmed">
+                        When{" "}
                       </Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <Button component={Link} to={`/rules/${r.id}`} size="xs" variant="light">
-                        {editable ? "Edit" : "View"}
-                      </Button>
-                    </Table.Td>
-                  </Table.Tr>
-                );
-              })}
-            </Table.Tbody>
-          </Table>
-        </Table.ScrollContainer>
-      )}
+                      {describeCondition(r.when)}
+                    </Text>
+                    <Text size="sm">
+                      <Text span c="dimmed">
+                        Notify{" "}
+                      </Text>
+                      {routeSummary(r.route)}
+                    </Text>
+                    <Text size="xs" c="dimmed">
+                      Changed by {r.updatedBy}
+                      {r.updatedAt ? `, ${relativeTime(r.updatedAt)}` : ""}
+                    </Text>
+                  </Stack>
+                </Group>
+                <Button component={Link} to={`/rules/${r.id}`} size="xs" variant="light">
+                  {editable ? "Edit" : "View"}
+                </Button>
+              </Group>
+            </Card>
+          );
+        })}
+      </Stack>
     </Stack>
   );
 }
