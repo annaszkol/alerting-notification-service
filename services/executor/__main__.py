@@ -1,6 +1,7 @@
 """Executor + scheduler process (owner B, spec §5, §7). Run as `python -m services.executor`.
 
-Env: DATABASE_URL, ACTION_HTTP_ALLOWLIST (comma-separated hosts for http actions), EXECUTOR_POLL_SECONDS (0.5).
+Env: DATABASE_URL, ACTION_HTTP_ALLOWLIST (comma-separated hosts for http_get / webhook), WORKFLOW_ENGINE_URL,
+ORCHESTRATOR_URL, TICKETS_URL, EXECUTOR_POLL_SECONDS (0.5).
 Scale by running more instances: step runs are claimed with SKIP LOCKED, scheduler jobs are idempotent.
 """
 
@@ -16,8 +17,9 @@ from datetime import UTC, datetime
 import psycopg
 
 from services.executor import scheduler
-from services.executor.actions import REGISTRY
-from services.executor.engine import Executor
+from services.executor.actions.builtin import ActionSettings, build_registry
+from services.executor.approvals import request_approval
+from services.executor.engine import Executor, Hooks
 
 log = logging.getLogger("executor")
 
@@ -26,12 +28,18 @@ async def run(stop: asyncio.Event) -> None:
     conninfo = os.environ["DATABASE_URL"]
     poll = float(os.environ.get("EXECUTOR_POLL_SECONDS", "0.5"))
     allowlist = frozenset(h.strip() for h in os.environ.get("ACTION_HTTP_ALLOWLIST", "").split(",") if h.strip())
-    executor = Executor(actions=REGISTRY, http_allowlist=allowlist)
+    settings = ActionSettings(
+        workflow_engine_url=os.environ.get("WORKFLOW_ENGINE_URL", ActionSettings.workflow_engine_url),
+        orchestrator_url=os.environ.get("ORCHESTRATOR_URL", ActionSettings.orchestrator_url),
+        tickets_url=os.environ.get("TICKETS_URL", ActionSettings.tickets_url),
+    )
+    actions = build_registry(conninfo, settings)
+    executor = Executor(actions=actions, http_allowlist=allowlist, hooks=Hooks(approval_requested=request_approval))
 
     while not stop.is_set():
         try:
             with psycopg.connect(conninfo, autocommit=True) as conn:
-                log.info("executor started, actions: %s", sorted(REGISTRY))
+                log.info("executor started, actions: %s, allowlist: %s", sorted(actions), sorted(allowlist))
                 last_jobs = 0.0
                 while not stop.is_set():
                     if time.monotonic() - last_jobs >= scheduler.INTERVAL_SECONDS:

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Action targets</title>
+<style>body{font:14px system-ui,sans-serif;margin:16px;background:#f6f7f9;color:#1d2330}
+table{border-collapse:collapse;width:100%;background:#fff}td,th{border:1px solid #e3e6eb;padding:4px 8px;text-align:left}
+.fail{color:#c62828}button{margin:2px}</style></head><body><h1>Action targets (mock)</h1><div id="state"></div>
+<h2>Calls</h2><table><thead><tr><th>time</th><th>target</th><th>request</th><th>status</th></tr></thead>
+<tbody id="calls"></tbody></table><script>
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+async function fail(t,n){await fetch("api/fail",{method:"POST",headers:{"content-type":"application/json"},
+body:JSON.stringify({target:t,times:n})});load()}
+async function load(){const s=await (await fetch("api/state")).json();
+document.getElementById("state").innerHTML=Object.entries(s).map(([t,n])=>`<div>${t}: <b class="${n?"fail":""}">${
+n<0?"always failing":n>0?"failing next "+n:"ok"}</b> <button onclick="fail('${t}',0)">ok</button>
+<button onclick="fail('${t}',2)">fail 2x</button><button onclick="fail('${t}',-1)">always fail</button></div>`).join("");
+const c=await (await fetch("api/calls")).json();document.getElementById("calls").innerHTML=c.reverse().map(x=>
+`<tr><td>${esc(x.at)}</td><td>${esc(x.target)}</td><td>${esc(x.method+" "+x.path)}</td><td>${x.status}</td></tr>`).join("")}
+load();setInterval(load,2000)</script></body></html>

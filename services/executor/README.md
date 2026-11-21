@@ -9,7 +9,8 @@ running more instances (step runs are claimed with `SKIP LOCKED` + lease; schedu
 | `scheduler.py` | every 10 s: resolve silent alerts (`autoResolveAfter`), delete `processed_events` older than 24 h |
 | `alerts.py` | what the executor reads / writes on `alerts` (A's table, spec §8 columns) |
 | `templating.py` | stand-in renderer for step params until the shared templater lands |
-| `actions/` | action registry; built-in actions arrive on `feat/actions-approvals` |
+| `actions/builtin.py` | built-in actions (`build_registry`) |
+| `approvals.py` | approval requests, decisions (UI / SMS code / email link), signed links |
 
 ## How a run works
 
@@ -33,3 +34,37 @@ running more instances (step runs are claimed with `SKIP LOCKED` + lease; schedu
 
 Entry points take the caller's connection and run inside its transaction; the executor's own connection must be in
 autocommit mode.
+
+## Actions (`actions/builtin.py`, spec §7)
+
+| Action | Params | Min approval | Calls |
+| --- | --- | --- | --- |
+| `http_get` | `url` | none | GET; host must be on `ACTION_HTTP_ALLOWLIST` (checked after templating) |
+| `webhook` | `url`, `body` | required | POST to an allowlisted host, `Idempotency-Key: step-run-<id>-<attempt>` |
+| `retry_workflow` | `workflowId` | none | `POST $WORKFLOW_ENGINE_URL/workflows/<id>/retry` |
+| `restart_service` | `service` | required | `POST $ORCHESTRATOR_URL/services/<name>/restart` |
+| `open_ticket` | `title`, `description` | none | `POST $TICKETS_URL/tickets` (same `externalId` → same ticket) → `output.ticketId` |
+| `escalate` | `team` | none | adds the team to the alert (`alert_escalations`) and notifies its on-call person |
+| `notify` | `to`, `message`, `channels?` | none | notifications with a custom text (`notifications.message`) |
+
+Values from events are URL-encoded in paths, so `../` in an event cannot reach another endpoint. Internal actions key
+their notifications on the step run, so repeating them after a crash sends nothing new. New action: a class with
+`name`, `params_schema`, `min_approval`, `execute(params, ctx)`, added to `build_registry`.
+
+Demo targets: `mocks/action_targets` (compose `action-targets`, http://localhost:8091, host names
+`counterparty-service`, `workflow-engine`, `orchestrator`, `tickets`, `webhook-receiver`). The page / `POST /api/fail`
+makes a target fail the next N calls or always (spec §13 test 12: "mock set to fail").
+
+## Approvals (`approvals.py`, spec §6, §7, §11)
+
+- A step whose effective approval is `required` creates one `approvals` row with its own 6-character code and sends
+  `kind = approval` notifications (SMS + email) to the people with the required role (`approval_role`, default
+  `manager`) in the runbook owner's team (else the alert owner's team).
+- `decide_by_code(conn, code, phone, decision, now)`: `APPROVE <code>` / `REJECT <code>` by SMS; only from the phone
+  of someone with that role; a code decides exactly one request. The inbound SMS endpoint (`feat/inbound-sms-codes`)
+  calls it.
+- `decide(conn, approval_id, decision, user, via, now)`: UI and email links; checks the role; a decided request
+  cannot be decided again (links work once).
+- Email links: `PUBLIC_BASE_URL/approvals/<token>`; the token is HMAC-signed with `APPROVAL_LINK_SECRET`, names the
+  approval and the decision, and expires after 24 h (`verify_link`). The UI page (C) shows it and calls `decide`.
+- The approval SMS starts with the codes, so cutting it to 160 characters never loses them.
