@@ -113,10 +113,7 @@ async def claim(
     async with conn.transaction():
         cur = await conn.execute(CLAIM_SQL, {"now": now, "lease": lease, "limit": limit})
         rows = await cur.fetchall()
-    return [
-        Claimed(r[0], r[1], r[2], Channel(r[3]), NotificationKind(r[4]), r[5], r[6], r[7])
-        for r in sorted(rows)
-    ]
+    return [Claimed(r[0], r[1], r[2], Channel(r[3]), NotificationKind(r[4]), r[5], r[6], r[7]) for r in sorted(rows)]
 
 
 async def complete(conn: psycopg.AsyncConnection, results: list[tuple[Claimed, Outcome]]) -> int:
@@ -225,15 +222,11 @@ class DeliveryWorker:
         alerts = await self._by_id(ALERTS_SQL, sorted({r.alert_id for r in rows}))
         results = await asyncio.gather(*(self._deliver(row, users, alerts) for row in rows))
         done_at = now or datetime.now(UTC)  # backoff counts from the end of the send
-        outcomes = [
-            (row, decide(result, row.attempts, done_at)) for row, result in zip(rows, results, strict=True)
-        ]
+        outcomes = [(row, decide(result, row.attempts, done_at)) for row, result in zip(rows, results, strict=True)]
         await complete(self.conn, outcomes)
         for row, outcome in outcomes:
             if outcome.status != "sent":
-                log.warning(
-                    "notification %s (%s) -> %s: %s", row.id, row.channel, outcome.status, outcome.last_error
-                )
+                log.warning("notification %s (%s) -> %s: %s", row.id, row.channel, outcome.status, outcome.last_error)
         return len(rows)
 
     async def _by_id(self, sql: str, ids: list[Any]) -> dict[Any, dict[str, Any]]:
