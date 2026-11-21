@@ -22,3 +22,18 @@ def sms_text(severity: str, title: str, alert_url: str, reply_code: str | None) 
 def phone_text(severity: str, title: str, can_ack: bool = True) -> str:
     text = f"{severity.capitalize()} alert. {' '.join(title.split())}."
     return text + (" Press 1 to acknowledge." if can_ack else "")
+
+
+LIVE_FIELDS = ("$count", "$state", "$alertUrl")
+
+
+def fill_live_fields(text: str, alert: dict, alert_url: str) -> str:
+    """Fill {{$count}}, {{$state}}, {{$alertUrl}} left untouched in the stored title/body (spec §3).
+
+    Minimal stand-in until the shared templater (libs/conditions, owner A) exposes live-field rendering.
+    """
+    values = {"$count": alert.get("count"), "$state": alert.get("state"), "$alertUrl": alert_url}
+    for name in LIVE_FIELDS:
+        for token in (f"{{{{{name}}}}}", f"{{{{ {name} }}}}"):
+            text = text.replace(token, "—" if values[name] is None else str(values[name]))
+    return text
