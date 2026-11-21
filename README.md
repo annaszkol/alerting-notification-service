@@ -31,6 +31,10 @@ Requires Docker with Compose v2.
 docker compose -f deploy/docker-compose.yml up --build
 ```
 
+**Measured (spec §13 test 18):** fresh `git clone` → `docker compose up -d --build` → `deploy/smoke-test.sh` green in
+**205 s** with an empty Docker build cache (2026-11-21, Apple M1, 8 GB RAM, macOS 26.6, Docker 29.9 with 8 CPUs and 4 GB
+for the VM, commit 4746344). Later starts reuse the built images.
+
 No `.env` is needed; defaults are in the compose file. To override them, copy `.env.example` to `deploy/.env`.
 
 | What | Address |
