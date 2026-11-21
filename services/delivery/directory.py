@@ -12,6 +12,7 @@ from typing import Any, Protocol
 
 import psycopg
 
+from services.delivery.presence import away_users
 from services.delivery.schedule import DEFAULT_PREFERENCES, Limit, Rotation, merge_limits
 
 
@@ -40,6 +41,10 @@ class Directory(Protocol):
     def profiles(self, conn: psycopg.Connection, user_ids: Iterable[str], owner_team: str | None) -> dict[str, Profile]:
         """Time zone and preferences per user. Team defaults: the rule owner's team if the person is in it,
         else the person's first team (by id) that has defaults."""
+        ...
+
+    def away(self, conn: psycopg.Connection, user_ids: Iterable[str], now: datetime) -> set[str]:
+        """People who track their work time and are not at work now (spec §6 "Czas pracy")."""
         ...
 
 
@@ -144,6 +149,9 @@ class SqlDirectory:
             if user_id in timezones
         }
 
+    def away(self, conn: psycopg.Connection, user_ids: Iterable[str], now: datetime) -> set[str]:
+        return away_users(conn, user_ids, now)
+
 
 @dataclass(frozen=True)
 class StaticDirectory:
@@ -157,6 +165,10 @@ class StaticDirectory:
     team_preferences: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     user_limits: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     team_limits: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    away_users: frozenset[str] = frozenset()
+
+    def away(self, conn: psycopg.Connection, user_ids: Iterable[str], now: datetime) -> set[str]:
+        return set(user_ids) & self.away_users
 
     def _users(self) -> set[str]:
         return set(self.extra_users).union(*(members.keys() for members in self.teams.values()))

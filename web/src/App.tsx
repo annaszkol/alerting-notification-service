@@ -8,6 +8,7 @@ import { api, getToken, LOGOUT_EVENT, queryString, setToken } from "./api/client
 import type { Approval } from "./api/types";
 import { usePermissions } from "./auth/permissions";
 import { LiveProvider, useLive } from "./feed/live";
+import { WorkButton } from "./work/work";
 import { AlertDetail } from "./pages/AlertDetail";
 import { ApprovalLink } from "./pages/ApprovalLink";
 import { Approvals } from "./pages/Approvals";
@@ -137,7 +138,8 @@ function Shell() {
             </Text>
           </Group>
           <Group gap="sm" wrap="nowrap">
-            <Badge color={color} variant="dot" title="Live updates">
+            <WorkButton />
+            <Badge color={color} variant="dot" title="Live updates" visibleFrom="sm">
               {live.status}
             </Badge>
             <Text size="sm" visibleFrom="xs">

@@ -102,3 +102,5 @@ export interface PreviewResult {
   letters: Letter[];
   errors: FieldError[];
 }
+
+export type WorkStatus = S["WorkStatus"];

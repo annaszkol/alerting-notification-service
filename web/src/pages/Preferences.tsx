@@ -8,6 +8,7 @@ import { api } from "../api/client";
 import { CHANNELS, SEVERITIES, type Channel, type Preferences as Prefs, type Severity } from "../api/types";
 import { ErrorAlert } from "../components/ErrorAlert";
 import { BETWEEN, TIMEZONES, WEEKDAYS } from "../components/format";
+import { WorkTimeSection } from "../work/work";
 
 export function Preferences() {
   const prefs = useQuery({ queryKey: ["preferences"], queryFn: () => api<Prefs>("/preferences/me") });
@@ -52,6 +53,13 @@ function Form({ initial }: { initial: Prefs }) {
       <Text size="sm" c="dimmed">
         Used when a rule sends to “their preferences”. If a rule names channels itself, the rule wins. The UI feed always shows your alerts.
       </Text>
+
+      <Card withBorder>
+        <Title order={4} mb="xs">
+          Work time
+        </Title>
+        <WorkTimeSection />
+      </Card>
 
       <Card withBorder>
         <Title order={4} mb="xs">
