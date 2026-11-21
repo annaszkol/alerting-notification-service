@@ -10,7 +10,7 @@
   end of the latency measurement (spec §10). `DELETE /api/messages` clears.
 - `POST /api/outage {"sms": true}`: toggle from scripts.
 - Replies and "press 1" are forwarded to `INBOUND_SMS_URL` (`POST /api/inbound/sms`, contracts/delivery.md); the
-  API's answer is shown next to the reply. Until `feat/inbound-sms-codes` lands, replies show `http_404`.
+  API's answer (`acknowledged`, `approved`, `rejected`, `unknown_code`, `not_allowed`) is shown next to the reply.
 - State is in memory: restarting the container clears it.
 
 Email goes to Mailpit (compose, http://localhost:8025).

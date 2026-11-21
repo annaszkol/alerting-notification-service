@@ -13,6 +13,7 @@ REST API under `/api`, mock login with JWT, role checks. Contract: [`contracts/o
 | `domain/alerts.py` | feed, details, timeline; `ack_alert` / `resolve_alert` (shared with B's inbound SMS handler) |
 | `domain/rules.py` | rule CRUD; every write bumps `config_version` + `NOTIFY config_changed` in the same transaction |
 | `ws.py` | WebSocket `/ws`: one `LISTEN alerts_changed` per instance, batched reads by id, per-client filters, ping, `resync` |
+| `routers/inbound.py` | `POST /api/inbound/sms` from the fake gateway; thin route, logic is B's `services/delivery/inbound.py` |
 | `stubs.py` | TEMPORARY stand-ins for `libs/conditions` (paths, live fields, condition check) until A merges it |
 
 ## Login is a mock

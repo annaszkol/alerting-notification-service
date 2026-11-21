@@ -215,3 +215,38 @@ def test_notification_requires_existing_user(conn):
         conn.execute(
             "INSERT INTO notifications (alert_id, user_id, channel, dedup_key) VALUES (1, 'ghost', 'sms', 'e')"
         )
+
+
+@pytest.mark.db
+def test_ack_codes_one_per_alert_and_person(conn):
+    """contracts/delivery.md: one `ACK <code>` per (alert, person), shared by that person's channels."""
+    from services.delivery.codes import CODE_ALPHABET, CODE_LENGTH
+
+    SQL_PLAN(conn, alert(1), rule([{"to": {"team": "rates"}, "channels": ["sms", "email"]}]), NOW)
+    codes = dict(conn.execute("SELECT user_id || ':' || channel, reply_code FROM notifications").fetchall())
+    assert codes["anna:sms"] == codes["anna:email"]
+    assert codes["bob:sms"] == codes["bob:email"]
+    assert codes["anna:sms"] != codes["bob:sms"]
+    assert all(len(c) == CODE_LENGTH and set(c) <= set(CODE_ALPHABET) for c in codes.values())
+
+    # another rule adds a channel for the same alert: anna keeps her code
+    SQL_PLAN(conn, alert(1, first_event_id="evt-1b"), rule([{"to": {"user": "anna"}, "channels": ["phone"]}]), NOW)
+    phone = conn.execute("SELECT reply_code FROM notifications WHERE channel = 'phone'").fetchone()[0]
+    assert phone == codes["anna:sms"]
+
+    # a new alert gets a new code
+    SQL_PLAN(conn, alert(2, first_event_id="evt-2"), rule([{"to": {"user": "anna"}, "channels": ["sms"]}]), NOW)
+    new = conn.execute("SELECT reply_code FROM notifications WHERE alert_id = 2").fetchone()[0]
+    assert new != codes["anna:sms"]
+
+
+@pytest.mark.db
+def test_planner_works_on_dict_row_connections(database):
+    """The API's pool returns dict rows (rule tester, escalate from the API process); B's code must not care."""
+    from psycopg.rows import dict_row
+
+    with psycopg.connect(database, row_factory=dict_row) as c:
+        result = SQL_PLAN(c, alert(9, first_event_id="evt-9"), rule([{"to": {"team": "rates"}}]), NOW)
+        assert {n.user_id for n in result.notifications} == {"anna", "bob"}
+        assert c.row_factory is dict_row  # restored for the caller
+        c.rollback()
