@@ -23,7 +23,7 @@ CHANNEL_RELOAD_SECONDS = 30
 
 async def run(stop: asyncio.Event) -> None:
     conninfo = os.environ["DATABASE_URL"]
-    base_url = os.environ.get("PUBLIC_BASE_URL", "http://localhost:5173")
+    base_url = os.environ.get("PUBLIC_BASE_URL", "http://localhost:3000")
     poll = float(os.environ.get("DELIVERY_POLL_SECONDS", "0.5"))
     batch = int(os.environ.get("DELIVERY_BATCH_SIZE", str(BATCH_SIZE)))
 

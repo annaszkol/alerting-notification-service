@@ -1,4 +1,4 @@
-"""Append-only audit log (migration 202611211700_audit_log.sql)."""
+"""Append-only audit log (migration 202611211701_audit_log.sql)."""
 
 from __future__ import annotations
 
