@@ -232,8 +232,8 @@ def map_event(envelope: Envelope, source: Source, mappings: Iterable[SchemaMappi
     return [Mapped(build_letter(envelope, source, payload, mapping, None), mapping.name if mapping else None)]
 
 
-def shape_hash(payload: Any) -> str:
-    """Groups unmapped samples by their set of keys (spec §3 "grupowanie po zbiorze kluczy")."""
+def shape_keys(payload: Any) -> list[str]:
+    """Sorted key paths of a payload (nested dicts), the "shape" of an unmapped event."""
 
     def keys(node: Any, prefix: str = "") -> Iterable[str]:
         if isinstance(node, dict):
@@ -242,4 +242,9 @@ def shape_hash(payload: Any) -> str:
                 yield path
                 yield from keys(value, path)
 
-    return hashlib.sha256("\n".join(sorted(set(keys(payload)))).encode()).hexdigest()[:16]
+    return sorted(set(keys(payload)))
+
+
+def shape_hash(payload: Any) -> str:
+    """Groups unmapped samples by their set of keys (spec §3 "grupowanie po zbiorze kluczy")."""
+    return hashlib.sha256("\n".join(shape_keys(payload)).encode()).hexdigest()[:16]

@@ -15,7 +15,6 @@ REST API under `/api`, mock login with JWT, role checks. Contract: [`contracts/o
 | `ws.py` | WebSocket `/ws`: one `LISTEN alerts_changed` per instance, batched reads by id, per-client filters, ping, `resync` |
 | `routers/inbound.py` | `POST /api/inbound/sms` from the fake gateway; thin route, logic is B's `services/delivery/inbound.py` |
 | `routers/runbooks.py` | runbooks (read, edit, mode, approve, delete), `/actions`, runbook runs (start, step start, step done), approvals (list, approve, reject, email link by token); thin routes over B's `services/executor/runbooks.py`, `engine.py`, `approvals.py` |
-| `stubs.py` | TEMPORARY stand-ins for `libs/conditions` (paths, live fields, condition check) until A merges it |
 
 ## Login is a mock
 
