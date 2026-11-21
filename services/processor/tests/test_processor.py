@@ -254,9 +254,12 @@ def test_auto_runbook_starts_with_the_alert(conn, database):
 
 
 def test_config_reload_and_missing_tables(database):
-    with temporary_database("test_processor_empty", migrate=True) as empty, psycopg.connect(empty) as c:
-        assert not config_store.tables_ready(c)
+    with temporary_database("test_processor_empty") as empty, psycopg.connect(empty) as c:
+        assert not config_store.tables_ready(c)  # before migrations: the processor waits
         assert config_store.load(c).rules == ()
+    with temporary_database("test_processor_fresh", migrate=True) as fresh, psycopg.connect(fresh) as c:
+        assert config_store.tables_ready(c)
+        assert config_store.load(c).rules == ()  # migrated, nothing configured yet
     with psycopg.connect(database) as c:
         assert config_store.tables_ready(c)
         before = config_store.current_version(c)

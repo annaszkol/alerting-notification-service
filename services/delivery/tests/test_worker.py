@@ -136,7 +136,11 @@ def db(database):
             "INSERT INTO users (id, name, email, phone) VALUES"
             " ('anna', 'Anna', 'anna@example.test', '+48500100200'), ('bob', 'Bob', NULL, NULL)"
         )
-        conn.execute("INSERT INTO alerts VALUES (7, %(title)s, %(body)s, %(severity)s, %(state)s, %(count)s)", ALERT)
+        conn.execute(
+            "INSERT INTO alerts (id, title, body, severity, state, count)"
+            " VALUES (7, %(title)s, %(body)s, %(severity)s, %(state)s, %(count)s)",
+            ALERT,
+        )
     return database
 
 
