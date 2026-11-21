@@ -40,8 +40,8 @@ def test_rotation_and_truncation_start_over(tmp_path):
     inode, offset, _ = tailer.read_lines(str(log), None, 0)
     log.write_text("c=3\n")  # truncated: shorter than the saved offset
     assert [t for _, t in tailer.read_lines(str(log), inode, offset)[2]] == ["c=3"]
-    os.remove(log)
-    log.write_text("d=4\ne=5\nf=6\n")  # rotated: new inode
+    os.rename(log, tmp_path / "x.log.1")  # logrotate: the old file is renamed, a new one is created
+    log.write_text("d=4\ne=5\nf=6\n")
     assert len(tailer.read_lines(str(log), inode, 4)[2]) == 3
 
 
@@ -118,3 +118,10 @@ def test_generator_payloads(monkeypatch):
     assert sent[2][1]["status"] == "resolved"
     burst = [p for s, p in sent[3:]]
     assert len(burst) == 5 and all(p == burst[0] for p in burst)  # identical events
+
+
+def test_kafka_compression_codecs_are_installed():
+    """External producers compress (rpk defaults to snappy); without these the adapter cannot read them."""
+    from kafka.codec import has_lz4, has_snappy, has_zstd
+
+    assert (has_snappy(), has_lz4(), has_zstd()) == (True, True, True)
