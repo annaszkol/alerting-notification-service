@@ -10,6 +10,7 @@ import type { AlertDetail as Detail, TimelineEntry } from "../api/types";
 import { SeverityBadge, StateBadge } from "../components/badges";
 import { formatTime } from "../components/time";
 import { useLive } from "../feed/live";
+import { RunbookPanel } from "../runbooks/RunbookPanel";
 
 const TIMELINE_COLOR: Record<TimelineEntry["kind"], string> = {
   state: "blue",
@@ -38,6 +39,7 @@ export function AlertDetail() {
         if ((message.type === "alert.upsert" && message.alert.id === id) || message.type === "resync") {
           void client.invalidateQueries({ queryKey: ["alert", id] });
           void client.invalidateQueries({ queryKey: ["timeline", id] });
+          void client.invalidateQueries({ queryKey: ["run"] });
         }
       }),
     [live, client, id],
@@ -139,34 +141,11 @@ export function AlertDetail() {
             Runbooks
           </Title>
           {a.runbooks.length === 0 && <Text c="dimmed">No runbook matches this alert.</Text>}
-          {a.runbooks.map((rb) => (
-            <Stack key={rb.id} gap={4} mb="sm">
-              <Group gap="xs">
-                <Text fw={600}>{rb.title}</Text>
-                {!rb.approved && <Badge color="gray">not approved: read only</Badge>}
-                {rb.mode && <Badge variant="light">{rb.mode}</Badge>}
-              </Group>
-              {rb.url && (
-                <Anchor href={rb.url} target="_blank" rel="noreferrer">
-                  {rb.url}
-                </Anchor>
-              )}
-              <ol style={{ margin: 0, paddingLeft: "1.2rem" }}>
-                {rb.steps.map((step) => (
-                  <li key={step.id}>
-                    <Text size="sm">
-                      {step.title}{" "}
-                      {step.effectiveApproval === "required" && (
-                        <Badge size="xs" color="grape">
-                          needs {step.approvalRole ?? "manager"} approval
-                        </Badge>
-                      )}
-                    </Text>
-                  </li>
-                ))}
-              </ol>
-            </Stack>
-          ))}
+          <Stack gap="md">
+            {a.runbooks.map((rb) => (
+              <RunbookPanel key={rb.id} alertId={a.id} runbook={rb} />
+            ))}
+          </Stack>
         </Card>
       </SimpleGrid>
 

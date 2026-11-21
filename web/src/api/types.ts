@@ -19,3 +19,11 @@ export interface AlertPage {
 
 export const SEVERITIES: Severity[] = ["critical", "error", "warning", "info"];
 export const STATES: AlertState[] = ["open", "acknowledged", "resolved"];
+
+export type AlertRunbook = S["AlertRunbook"];
+export type RenderedStep = S["RenderedStep"];
+export type Runbook = S["Runbook"];
+export type RunbookRun = S["RunbookRun"];
+export type StepRun = S["StepRun"];
+export type Approval = S["Approval"];
+export type ApprovalByToken = S["ApprovalByToken"];
