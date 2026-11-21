@@ -1,7 +1,7 @@
 # Contracts
 
-Interfaces between components (spec §12, "Kontrakty"). Changes go in a separate `contracts/...` PR,
-are additive only and need approval from all three owners.
+Interfaces between components (spec §12, "Kontrakty"). Changes go in a separate
+`contracts/...` PR, are additive only and need approval from all three owners.
 
 | Contract | Owner |
 | --- | --- |
@@ -15,8 +15,15 @@ Each owner fills in their part on a `contracts/v1-...` branch.
 
 | File | Owner | What |
 | --- | --- | --- |
+| [`event.py`](event.py), [`letter.py`](letter.py), [`letter.md`](letter.md) | A | `EventEnvelope`, `Letter`, path syntax |
+| [`condition.py`](condition.py), [`conditions.md`](conditions.md) | A | condition JSON AST and operators |
+| [`template.py`](template.py), [`templates.md`](templates.md) | A | `{{path}}` placeholder syntax, live vs static fields |
 | [`delivery.md`](delivery.md), [`delivery.py`](delivery.py) | B | `plan_notifications`, channel adapter, message formats, reply codes |
 | [`route.schema.json`](route.schema.json) | B | `rule.route` (recipients and channels) |
 | [`runbooks.md`](runbooks.md), [`runbook.schema.json`](runbook.schema.json), [`actions.py`](actions.py) | B | canonical runbook, action interface and registry |
 
-`contracts/tests/` validates the spec examples against the schemas (`uv run pytest contracts`).
+`contracts/tests/` validates the spec examples against these files
+(`uv run pytest contracts`). A contract file is `contracts/<name>.md` when the shape is
+worth explaining in prose (`letter.md`, `conditions.md`, `templates.md`, `delivery.md`,
+`runbooks.md`) and `contracts/<name>.py` or `contracts/<name>.schema.json` when it is
+just a type or a schema.
