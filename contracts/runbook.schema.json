@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alerting.local/contracts/runbook.schema.json",
+  "title": "Canonical runbook",
+  "description": "Result of a runbook import (spec §7). Stored in runbooks.steps / runbooks.match; the original text is kept separately. Parameters are templates (spec §3 template syntax).",
+  "type": "object",
+  "required": ["id", "steps"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "#/$defs/slug" },
+    "title": { "type": "string" },
+    "owner": {
+      "type": "object", "additionalProperties": false, "required": ["team"],
+      "properties": { "team": { "$ref": "#/$defs/slug" } }
+    },
+    "format": {
+      "description": "Format of the original.",
+      "enum": ["yaml", "markdown", "checklist", "text", "link"]
+    },
+    "link": { "type": "string", "description": "Wiki URL; for format=link the runbook has no steps." },
+    "match": {
+      "description": "Optional own match condition (condition JSON, contract owned by A). A runbook can also be attached via rule.runbooks.",
+      "type": "object"
+    },
+    "mode": {
+      "description": "auto: steps whose effective approval is none start by themselves. Only a manager can set it (spec §14).",
+      "enum": ["manual", "auto"],
+      "default": "manual"
+    },
+    "steps": { "type": "array", "items": { "$ref": "#/$defs/step" } }
+  },
+  "$defs": {
+    "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]*$" },
+    "duration": { "type": "string", "pattern": "^[1-9][0-9]*(s|m|h)$" },
+    "step": {
+      "type": "object",
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "$ref": "#/$defs/slug" },
+        "kind": { "enum": ["text", "action", "wait"] },
+        "title": { "type": "string" },
+        "approval": {
+          "description": "Requested level. Effective level = max(this, action.min_approval); a runbook can raise it, never lower it.",
+          "enum": ["none", "required"],
+          "default": "none"
+        },
+        "approval_role": {
+          "description": "Who may approve when approval is required.",
+          "enum": ["manager", "member"],
+          "default": "manager"
+        },
+        "attempts": { "type": "integer", "minimum": 1, "default": 1 },
+        "on_failure": {
+          "description": "Step id to jump to after all attempts failed. Omitted = record the failure and continue with the next step.",
+          "$ref": "#/$defs/slug"
+        },
+        "resolves": { "type": "boolean", "default": false, "description": "Success resolves the alert (resolved_how = runbook)." },
+        "only_if_open": { "type": "boolean", "default": false, "description": "Skip the step when the alert is already resolved." },
+        "needs_review": {
+          "type": "boolean", "default": false,
+          "description": "Set by the importer when it could not understand a field or phrase; shown to the manager."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "text" } } },
+          "then": {
+            "required": ["text"],
+            "properties": {
+              "text": { "type": "string", "description": "Template, rendered with alert values." },
+              "checkbox": { "type": "boolean", "default": true, "description": "Manual step ticked off in the UI." }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "action" } } },
+          "then": {
+            "required": ["action"],
+            "properties": {
+              "action": { "$ref": "#/$defs/slug", "description": "Name in the action registry." },
+              "params": { "type": "object", "description": "String values are templates." }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "wait" } } },
+          "then": {
+            "required": ["duration"],
+            "properties": { "duration": { "$ref": "#/$defs/duration" } }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}
