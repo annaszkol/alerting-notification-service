@@ -145,7 +145,15 @@ def test_approve_and_reject_by_sms(client, conn, phones, database):
     step = conn.execute("SELECT status, approved_by FROM step_runs WHERE run_id = %s", (run_id,)).fetchone()
     assert (step["status"], step["approved_by"]) == ("pending", "marek")
 
+    assert restart.calls == 0
+    approved_run = run_id
+
+    # the next executor pass (inside waiting_step) runs the approved step; the new one waits for its own code
     run_id, code = waiting_step(conn, database, executor, "second")
+    assert restart.calls == 1
+    status = conn.execute("SELECT status FROM runbook_runs WHERE id = %s", (approved_run,)).fetchone()["status"]
+    assert status == "succeeded"
+
     assert sms(client, MAREK, f"REJECT {code}") == "rejected"
     assert conn.execute("SELECT status FROM runbook_runs WHERE id = %s", (run_id,)).fetchone()["status"] == "rejected"
-    assert restart.calls == 0
+    assert restart.calls == 1  # the rejected step never ran
