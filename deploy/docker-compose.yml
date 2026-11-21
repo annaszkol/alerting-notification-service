@@ -18,6 +18,7 @@ x-app: &app
     PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000} # links in emails / SMS
     APPROVAL_LINK_SECRET: ${APPROVAL_LINK_SECRET:-dev-only-approval-link-secret} # signs approve/reject email links
     JWT_SECRET: ${JWT_SECRET:-} # empty: the API uses its logged dev-only secret
+    SEED_INGEST_TOKEN: ${SEED_INGEST_TOKEN:-dev-ingest-token} # demo ingest token of the seeded HTTP sources
   depends_on: &app-deps
     seed:
       condition: service_completed_successfully

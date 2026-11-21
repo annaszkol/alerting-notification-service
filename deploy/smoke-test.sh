@@ -36,4 +36,25 @@ for svc in processor delivery executor; do
   state=$(docker inspect -f '{{.State.Status}}' "$(compose ps -q "$svc")")
   [[ "$state" == running ]] && echo "ok   $svc running" || { echo "FAIL $svc is $state"; exit 1; }
 done
+# End to end (spec §13 test 1): event over HTTP -> Kafka -> processor -> outbox -> delivery -> fake SMS gateway.
+token="${SEED_INGEST_TOKEN:-dev-ingest-token}"
+key="smoke-$(date +%s)-$RANDOM"
+workflow_id="WF-SMOKE-$RANDOM"
+curl -fsS -X POST http://localhost:8080/ingest/workflows -H "X-Source-Token: $token" -H "Idempotency-Key: $key" \
+  -H 'Content-Type: application/json' -d @- >/dev/null <<JSON
+{"type": "WORKFLOW_FAILED", "workflowId": "$workflow_id", "workflowName": "order-settlement",
+ "step": "validate-counterparty", "severity": "ERROR", "environment": "prod",
+ "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+ "error": {"code": "TIMEOUT", "message": "Counterparty service did not respond in 5000 ms"}}
+JSON
+echo "ok   event accepted by ingest"
+for _ in $(seq 1 60); do
+  if curl -fsS http://localhost:8090/api/messages?channel=sms | grep -q "Settlement failed: $workflow_id"; then
+    echo "ok   SMS for $workflow_id reached the fake gateway (end to end)"; break
+  fi
+  sleep 1
+done
+curl -fsS http://localhost:8090/api/messages?channel=sms | grep -q "Settlement failed: $workflow_id" \
+  || { echo "FAIL no SMS for $workflow_id"; compose logs --no-color processor delivery ingest | tail -60; exit 1; }
+
 echo "smoke test passed"
