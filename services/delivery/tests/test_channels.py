@@ -21,7 +21,7 @@ def message(channel=Channel.SMS, recipient=ANNA, **kw) -> Message:
         channel=channel,
         recipient=recipient,
         subject="Settlement failed: wf-1",
-        text="[CRITICAL] Settlement failed: wf-1 http://localhost:5173/a/7 ACK K7Q2MX",
+        text="[CRITICAL] Settlement failed: wf-1 http://localhost:3000/a/7 ACK K7Q2MX",
         reply_code="K7Q2MX",
     )
     return Message(**(defaults | kw))
@@ -179,14 +179,14 @@ def test_no_email_is_permanent(smtp):
 
 
 def test_sms_text_fits_and_keeps_link_and_code():
-    text = sms_text("critical", "Settlement failed: wf-1", "http://localhost:5173/a/7", "K7Q2MX")
-    assert text == "[CRITICAL] Settlement failed: wf-1 http://localhost:5173/a/7 ACK K7Q2MX"
+    text = sms_text("critical", "Settlement failed: wf-1", "http://localhost:3000/a/7", "K7Q2MX")
+    assert text == "[CRITICAL] Settlement failed: wf-1 http://localhost:3000/a/7 ACK K7Q2MX"
 
 
 def test_long_sms_title_is_truncated_to_160():
-    text = sms_text("warning", "x" * 500, "http://localhost:5173/a/123456", "K7Q2MX")
+    text = sms_text("warning", "x" * 500, "http://localhost:3000/a/123456", "K7Q2MX")
     assert len(text) == SMS_MAX
-    assert text.endswith("… http://localhost:5173/a/123456 ACK K7Q2MX")
+    assert text.endswith("… http://localhost:3000/a/123456 ACK K7Q2MX")
 
 
 def test_sms_text_collapses_whitespace_and_works_without_code():

@@ -17,7 +17,7 @@ No `.env` is needed; defaults are in the compose file. To override them, copy `.
 
 | What | Address |
 | --- | --- |
-| API (`/healthz`) | http://localhost:8000 |
+| API (`/healthz`, docs: `/api/docs`) | http://localhost:8000 |
 | HTTP ingest (`/healthz`) | http://localhost:8080 |
 | Mailpit (caught emails) | http://localhost:8025 |
 | Fake SMS / phone gateway (messages, replies, outage toggle) | http://localhost:8090 |
@@ -48,6 +48,12 @@ TEST_DATABASE_URL=postgresql://alerting:alerting@localhost:5432/alerting uv run 
 
 All Python processes share one image (`Dockerfile`); compose picks the process with `command:`
 (`python -m services.<name>` or `uvicorn services.<name>.app:app`).
+
+## API and login
+
+REST API under `/api` (contract: [`contracts/openapi.yaml`](contracts/openapi.yaml), details:
+[`services/api/README.md`](services/api/README.md)). **Login is a mock:** pick any seeded user, no password
+(`POST /api/auth/login {"userId": "anna"}` returns a JWT). Set `JWT_SECRET` outside local demos.
 
 ## Database migrations
 

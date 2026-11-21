@@ -15,8 +15,9 @@ x-app: &app
     SMTP_HOST: mailpit
     SMTP_PORT: "1025"
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:5173} # links in emails / SMS
+    PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000} # links in emails / SMS
     APPROVAL_LINK_SECRET: ${APPROVAL_LINK_SECRET:-dev-only-approval-link-secret} # signs approve/reject email links
+    JWT_SECRET: ${JWT_SECRET:-} # empty: the API uses its logged dev-only secret
   depends_on: &app-deps
     seed:
       condition: service_completed_successfully
