@@ -11,6 +11,7 @@ import { LiveProvider, useLive } from "./feed/live";
 import { AlertDetail } from "./pages/AlertDetail";
 import { ApprovalLink } from "./pages/ApprovalLink";
 import { Approvals } from "./pages/Approvals";
+import { ConnectSource } from "./pages/ConnectSource";
 import { Feed } from "./pages/Feed";
 import { Login } from "./pages/Login";
 import { Admin } from "./pages/Admin";
@@ -22,6 +23,7 @@ import { RuleEditor } from "./pages/RuleEditor";
 import { Rules } from "./pages/Rules";
 import { RunbookEditor } from "./pages/RunbookEditor";
 import { RunbookImport } from "./pages/RunbookImport";
+import { Sources } from "./pages/Sources";
 import { Runbooks } from "./pages/Runbooks";
 import { Suggestions } from "./pages/Suggestions";
 import { Unmapped } from "./pages/Unmapped";
@@ -71,30 +73,34 @@ interface NavItem {
 }
 
 function navFor(isAdmin: boolean): { title?: string; items: NavItem[] }[] {
-  const groups: { title?: string; items: NavItem[] }[] = [
+  return [
     {
       items: [
         { to: "/", label: "Alerts", match: ["/alerts"] },
-        { to: "/approvals", label: "Approvals" },
-        { to: "/rules", label: "Rules" },
-        { to: "/runbooks", label: "Runbooks" },
-        { to: "/oncall", label: "On-call" },
-        { to: "/suggestions", label: "Proposed changes" },
-        { to: "/preferences", label: "My notifications" },
+        { to: "/approvals", label: "Waiting for my approval" },
       ],
     },
-  ];
-  if (isAdmin) {
-    groups.push({
-      title: "Admin",
+    {
+      title: "Setup",
       items: [
-        { to: "/unmapped", label: "Unmapped events" },
-        { to: "/mappings", label: "Mappings" },
-        { to: "/admin", label: "Teams, people, sources" },
+        ...(isAdmin ? [{ to: "/sources", label: "Sources", match: ["/mappings", "/unmapped"] }] : []),
+        { to: "/rules", label: "Alert rules" },
+        { to: "/runbooks", label: "Runbooks" },
       ],
-    });
-  }
-  return groups;
+    },
+    {
+      title: "Team",
+      items: [
+        { to: "/oncall", label: "On-call" },
+        { to: "/suggestions", label: "Change requests" },
+      ],
+    },
+    {
+      title: "You",
+      items: [{ to: "/preferences", label: "My notifications" }],
+    },
+    ...(isAdmin ? [{ title: "Admin", items: [{ to: "/admin", label: "People and teams" }] }] : []),
+  ];
 }
 
 function isActive(item: NavItem, path: string): boolean {
@@ -203,6 +209,9 @@ function Shell() {
             <Route path="/oncall" element={<Oncall />} />
             <Route path="/suggestions" element={<Suggestions />} />
             <Route path="/preferences" element={<Preferences />} />
+            <Route path="/sources" element={<AdminOnly><Sources /></AdminOnly>} />
+            <Route path="/sources/new" element={<AdminOnly><ConnectSource /></AdminOnly>} />
+            <Route path="/sources/:id/connect" element={<AdminOnly><ConnectSource /></AdminOnly>} />
             <Route path="/unmapped" element={<AdminOnly><Unmapped /></AdminOnly>} />
             <Route path="/mappings" element={<AdminOnly><Mappings /></AdminOnly>} />
             <Route path="/mappings/new" element={<AdminOnly><MappingEditor /></AdminOnly>} />
