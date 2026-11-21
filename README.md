@@ -17,10 +17,12 @@ No `.env` is needed; defaults are in the compose file. To override them, copy `.
 
 | What | Address |
 | --- | --- |
+| **Web UI** (login: pick a seeded user) | http://localhost:3000 |
 | API (`/healthz`, docs: `/api/docs`) | http://localhost:8000 |
 | HTTP ingest (`/healthz`) | http://localhost:8080 |
 | Mailpit (caught emails) | http://localhost:8025 |
 | Fake SMS / phone gateway (messages, replies, outage toggle) | http://localhost:8090 |
+| Runbook action mocks (call log, failure toggles) | http://localhost:8091 |
 | Postgres | `localhost:5432`, user / password / db: `alerting` |
 | Redpanda (Kafka API) | `localhost:19092`, topic `events.raw` (12 partitions) |
 

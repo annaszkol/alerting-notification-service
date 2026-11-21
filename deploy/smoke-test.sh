@@ -18,6 +18,8 @@ wait_for ingest http://localhost:8080/healthz
 wait_for mailpit http://localhost:8025/livez
 wait_for fake-gateway http://localhost:8090/healthz
 wait_for action-targets http://localhost:8091/healthz
+wait_for web http://localhost:3000/healthz
+wait_for web-api-proxy http://localhost:3000/api/auth/users
 
 for job in migrate seed redpanda-init; do
   code=$(docker inspect -f '{{.State.ExitCode}}' "$(compose ps -aq "$job")")
