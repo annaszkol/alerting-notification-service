@@ -209,7 +209,7 @@ def database():
 def conn(database):
     """DIRECTORY loaded into the database."""
     with psycopg.connect(database) as conn:
-        conn.execute("TRUNCATE notifications, oncall_schedules, channel_preferences, team_members, teams, users")
+        conn.execute("TRUNCATE channel_preferences, teams, users CASCADE")
         users = sorted({u for members in DIRECTORY.teams.values() for u in members} | DIRECTORY.extra_users)
         for user in users:
             conn.execute(
