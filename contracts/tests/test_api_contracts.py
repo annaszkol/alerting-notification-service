@@ -285,6 +285,7 @@ def test_invalid_client_messages(msg):
     "msg",
     [
         {"type": "alert.upsert", "alert": ALERT},
+        {"type": "subscribed", "filters": {"state": ["open", "acknowledged"]}},
         {"type": "ping"},
         {"type": "resync", "reason": "listener_reconnected"},
     ],

@@ -24,7 +24,8 @@ Unknown or malformed messages are ignored (the server logs them); they do not cl
 
 | Message | When |
 | --- | --- |
-| `{"type": "alert.upsert", "alert": AlertSummary}` | An alert matching the filters was created or changed (state, count, last seen, dead notification, runbook run). Also sent when an alert **stops** matching the filters (e.g. resolved while filtering `state: open`), so the client can drop it. |
+| `{"type": "alert.upsert", "alert": AlertSummary}` | An alert matching the filters was created or changed (state, count, last seen, dead notification, runbook run). The server filters by `team`, `user` and `severity`; a state change is sent even when the new state is outside the `state` filter, so the client can drop the alert. The client applies `state` itself. |
+| `{"type": "subscribed", "filters": {...}}` | Answer to `subscribe`: the filters now in force (after defaults). Messages after it use them. |
 | `{"type": "ping"}` | Every 20 s. A client that does not answer twice in a row is disconnected. |
 | `{"type": "resync", "reason": "listener_reconnected" \| "slow_consumer"}` | The server may have missed changes. The client reloads the list with `GET /alerts`. |
 
@@ -32,7 +33,8 @@ Unknown or malformed messages are ignored (the server logs them); they do not cl
 
 ## Client rules
 
-1. On connect and on every reconnect: send `subscribe`, then `GET /alerts`, then apply messages that arrive.
+1. On connect and on every reconnect: send `subscribe`, wait for `subscribed`, then `GET /alerts`, then apply
+   messages that arrive.
 2. Apply `alert.upsert` only when `alert.version` is newer than the version already held for that id
    (compare as strings; the format is sortable). This makes reordering and the REST/WS race harmless.
 3. Reconnect with backoff 1 s, 2 s, 4 s, … capped at 30 s; reset after a connection that lasted 30 s.
