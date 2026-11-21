@@ -1,0 +1,131 @@
+# Full local stack: `docker compose -f deploy/docker-compose.yml up`
+# Works without a .env file (defaults below); copy .env.example to .env to override.
+name: alerting
+
+x-app: &app
+  build:
+    context: ..
+    dockerfile: Dockerfile
+  init: true
+  restart: unless-stopped
+  environment: &app-env
+    DATABASE_URL: postgresql://${POSTGRES_USER:-alerting}:${POSTGRES_PASSWORD:-alerting}@postgres:5432/${POSTGRES_DB:-alerting}
+    KAFKA_BROKERS: redpanda:9092
+    EVENTS_RAW_TOPIC: events.raw
+    SMTP_HOST: mailpit
+    SMTP_PORT: "1025"
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  depends_on: &app-deps
+    migrate:
+      condition: service_completed_successfully
+    redpanda-init:
+      condition: service_completed_successfully
+
+x-http-healthcheck: &http-healthcheck
+  interval: 5s
+  timeout: 3s
+  retries: 20
+
+services:
+  # --- infrastructure ------------------------------------------------------------------------------------
+
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-alerting}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-alerting}
+      POSTGRES_DB: ${POSTGRES_DB:-alerting}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redpanda:
+    image: redpandadata/redpanda:v26.2.7
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=1G
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+    ports:
+      - "19092:19092"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+
+  redpanda-init:
+    image: redpandadata/redpanda:v26.2.7
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    # Idempotent: create the topic, or accept that it already exists.
+    command:
+      - >-
+        rpk topic create events.raw -p $${EVENTS_RAW_PARTITIONS} -X brokers=redpanda:9092
+        || rpk topic describe events.raw -X brokers=redpanda:9092
+    environment:
+      EVENTS_RAW_PARTITIONS: ${EVENTS_RAW_PARTITIONS:-12}
+    restart: "no"
+
+  mailpit:
+    image: axllent/mailpit:v1.33.1
+    ports:
+      - "8025:8025" # web UI
+      - "1025:1025" # SMTP
+
+  migrate:
+    <<: *app
+    command: ["python", "-m", "db.migrate"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # --- application ---------------------------------------------------------------------------------------
+
+  ingest: # owner A
+    <<: *app
+    command: ["uvicorn", "services.ingest.app:app", "--host", "0.0.0.0", "--port", "8080"]
+    ports:
+      - "8080:8080"
+    healthcheck:
+      <<: *http-healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
+
+  processor: # owner A
+    <<: *app
+    command: ["python", "-m", "services.processor"]
+
+  delivery: # owner B
+    <<: *app
+    command: ["python", "-m", "services.delivery"]
+
+  executor: # owner B
+    <<: *app
+    command: ["python", "-m", "services.executor"]
+
+  api: # owner C
+    <<: *app
+    command: ["uvicorn", "services.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    healthcheck:
+      <<: *http-healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+
+volumes:
+  postgres-data:
+  redpanda-data:

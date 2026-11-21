@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Instructions for AI coding agents (Claude Code, Cursor, Copilot, Codex, ...) and humans working in this repo.
-Keep this file short. Details live in `docs/spec.md`. Changes to this file go through a PR.
+Keep this file short. Details live in `docs/specs.md`. Changes to this file go through a PR.
 
 ## Project
 
@@ -11,10 +11,10 @@ deduplicates them into alerts, delivers notifications (UI, email, SMS, phone) an
 
 ## Sources of truth
 
-1. `docs/spec.md` - the full specification (sections are numbered; cite them as "spec §5").
+1. `docs/specs.md` - the full specification (sections are numbered; cite them as "spec §5").
 2. `contracts/` - event envelope, letter fields, condition JSON, template syntax, canonical runbook schema,
    OpenAPI, WebSocket / NOTIFY message formats.
-3. `docs/spec.md` §13 - acceptance tests. A branch is done when its tests pass on `main`.
+3. `docs/specs.md` §13 - acceptance tests. A branch is done when its tests pass on `main`.
 
 If code, spec and contracts disagree, stop and ask. Never silently change a contract to make code compile.
 
@@ -45,8 +45,10 @@ Work inside the directories of your branch. If you need a change elsewhere, say 
 
 <!-- TODO: fill in after the backend stack is chosen (spec §14). Do not guess. -->
 - Start everything: `docker compose -f deploy/docker-compose.yml up`
-- Run tests: TODO
-- Lint / format: TODO
+- Smoke-test a running stack: `deploy/smoke-test.sh`
+- Run tests: `uv run pytest` (DB tests need `TEST_DATABASE_URL`, see README)
+- Lint / format: `uv run ruff check .` / `uv run ruff format .`
+- Apply migrations: `DATABASE_URL=... uv run python -m db.migrate` (compose does it on `up`)
 - Load test: TODO
 
 ## Invariants (do not break these)
