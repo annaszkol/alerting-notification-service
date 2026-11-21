@@ -16,6 +16,7 @@ wait_for() {
 wait_for api http://localhost:8000/healthz
 wait_for ingest http://localhost:8080/healthz
 wait_for mailpit http://localhost:8025/livez
+wait_for fake-gateway http://localhost:8090/healthz
 
 for job in migrate redpanda-init; do
   code=$(docker inspect -f '{{.State.ExitCode}}' "$(compose ps -aq "$job")")
