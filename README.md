@@ -46,6 +46,9 @@ No `.env` is needed; defaults are in the compose file. To override them, copy `.
 
 Check that the stack is healthy: `deploy/smoke-test.sh`.
 
+Video demo, scene by scene (sends the events, toggles the mocks, says what to show): `deploy/demo.sh`
+(scenes `events burst outage runbook unknown`; CI rehearses all but `unknown` on every PR).
+
 Demo data (`deploy/seed/people.yaml`): users `admin`, `anna`, `bob`, `carol`, `dave`, `erin`, `frank`, `grace`, `henry`,
 `ivan`, `julia` in teams settlements, pricing, rates, payments and counterparty-support. Details and on-call rotations:
 [`deploy/seed/README.md`](deploy/seed/README.md).
