@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Protocol
 
@@ -14,7 +15,7 @@ class AlertGateway(Protocol):
     def get(self, conn: psycopg.Connection, alert_id: int) -> AlertContext | None: ...
 
     def resolve(self, conn: psycopg.Connection, alert_id: int, how: str, by: str | None, now: datetime) -> bool:
-        """Resolve if still open; NOTIFY alerts_changed with the id (spec §2). Returns whether it changed."""
+        """Resolve if still open; NOTIFY alerts_changed (spec §2). Returns whether it changed."""
         ...
 
 
@@ -34,5 +35,16 @@ class SqlAlerts:
             (how, by, now, alert_id),
         )
         if cur.rowcount:
-            conn.execute("SELECT pg_notify('alerts_changed', %s)", (str(alert_id),))
+            notify_alerts_changed(conn, [alert_id])
         return cur.rowcount == 1
+
+
+NOTIFY_CHUNK = 500  # ids per message: keeps the payload far below Postgres' 8000-byte limit
+
+
+def notify_alerts_changed(conn: psycopg.Connection, alert_ids: list[int]) -> None:
+    """`NOTIFY alerts_changed` with payload {"ids": [...]} (format proposed by C in docs/plans/c-api-web.md).
+    Delivered only after COMMIT, so the UI never sees a rolled-back change."""
+    for start in range(0, len(alert_ids), NOTIFY_CHUNK):
+        payload = json.dumps({"ids": alert_ids[start : start + NOTIFY_CHUNK]}, separators=(",", ":"))
+        conn.execute("SELECT pg_notify('alerts_changed', %s)", (payload,))

@@ -1,6 +1,7 @@
 """Runbook executor (spec §7) and scheduler jobs (spec §5)."""
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 
 import psycopg
@@ -404,17 +405,18 @@ def test_silence_resolves_alert_after_auto_resolve_after(conn, database):
     conn.execute(
         "INSERT INTO alerts (id, last_seen, auto_resolve_after) VALUES"
         " (10, %(t)s - interval '31 minutes', '30 minutes'),"  # silent long enough
+        " (13, %(t)s - interval '40 minutes', '30 minutes'),"
         " (11, %(t)s - interval '29 minutes', '30 minutes'),"  # not yet
         " (12, %(t)s - interval '2 days', NULL)",  # no autoResolveAfter
         {"t": T0},
     )
     with psycopg.connect(database, autocommit=True) as listener:
         listener.execute("LISTEN alerts_changed")
-        assert scheduler.resolve_silent_alerts(conn, T0) == [10]
-        payloads = [n.payload for n in listener.notifies(timeout=1, stop_after=1)]
-    assert payloads == ["10"]
+        assert scheduler.resolve_silent_alerts(conn, T0) == [10, 13]
+        payloads = [json.loads(n.payload) for n in listener.notifies(timeout=1, stop_after=1)]
+    assert payloads == [{"ids": [10, 13]}]  # one message, ids only
     states = dict(conn.execute("SELECT id, coalesce(resolved_how, state) FROM alerts WHERE id >= 10").fetchall())
-    assert states == {10: "silence", 11: "open", 12: "open"}
+    assert states == {10: "silence", 11: "open", 12: "open", 13: "silence"}
     assert scheduler.resolve_silent_alerts(conn, T0) == []  # idempotent
 
 
@@ -435,3 +437,21 @@ def test_jobs_skip_missing_tables():
     with temporary_database("test_sched_empty", migrate=True) as conninfo:
         with psycopg.connect(conninfo, autocommit=True) as c:
             assert scheduler.run_jobs(c, T0) == {"silence": 0, "processed_events": 0}
+
+
+def test_notify_payload_is_chunked():
+    from services.executor.alerts import NOTIFY_CHUNK, notify_alerts_changed
+
+    class Recorder:
+        def __init__(self):
+            self.payloads = []
+
+        def execute(self, sql, params):
+            self.payloads.append(json.loads(params[0]))
+
+    conn = Recorder()
+    notify_alerts_changed(conn, list(range(NOTIFY_CHUNK * 2 + 1)))
+    assert [len(p["ids"]) for p in conn.payloads] == [NOTIFY_CHUNK, NOTIFY_CHUNK, 1]
+    assert all(len(json.dumps(p)) < 8000 for p in conn.payloads)
+    notify_alerts_changed(conn, [])
+    assert len(conn.payloads) == 3  # nothing changed -> no message

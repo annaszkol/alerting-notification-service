@@ -11,6 +11,8 @@ from datetime import datetime
 
 import psycopg
 
+from services.executor.alerts import notify_alerts_changed
+
 log = logging.getLogger("scheduler")
 
 INTERVAL_SECONDS = 10
@@ -33,9 +35,8 @@ def resolve_silent_alerts(conn: psycopg.Connection, now: datetime) -> list[int]:
     if not _exists(conn, "alerts"):
         return []
     with conn.transaction():
-        ids = [row[0] for row in conn.execute(SILENCE_SQL, {"now": now}).fetchall()]
-        for alert_id in ids:  # payload is only the id (8000-byte limit, spec §2)
-            conn.execute("SELECT pg_notify('alerts_changed', %s)", (str(alert_id),))
+        ids = sorted(row[0] for row in conn.execute(SILENCE_SQL, {"now": now}).fetchall())
+        notify_alerts_changed(conn, ids)
     return ids
 
 
