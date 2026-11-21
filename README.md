@@ -26,6 +26,10 @@ No `.env` is needed; defaults are in the compose file. To override them, copy `.
 
 Check that the stack is healthy: `deploy/smoke-test.sh`.
 
+Demo data (`deploy/seed/people.yaml`): users `admin`, `anna`, `bob`, `carol`, `dave`, `erin`, `frank`, `grace`, `henry`,
+`ivan`, `julia` in teams settlements, pricing, rates, payments and counterparty-support. Details and on-call rotations:
+[`deploy/seed/README.md`](deploy/seed/README.md).
+
 ## Development
 
 ```sh

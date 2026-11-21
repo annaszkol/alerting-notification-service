@@ -17,7 +17,7 @@ x-app: &app
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
     PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:5173} # links in emails / SMS
   depends_on: &app-deps
-    migrate:
+    seed:
       condition: service_completed_successfully
     redpanda-init:
       condition: service_completed_successfully
@@ -109,6 +109,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  seed: # owner B: demo people, teams, on-call, preferences (deploy/seed); keeps rows edited in the UI
+    <<: *app
+    command: ["python", "-m", "deploy.seed.load"]
+    restart: "no"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
   # --- application ---------------------------------------------------------------------------------------
 
