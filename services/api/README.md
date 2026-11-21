@@ -12,6 +12,7 @@ REST API under `/api`, mock login with JWT, role checks. Contract: [`contracts/o
 | `schemas.py` | validators built from `contracts/` (requests are checked against the contract itself) |
 | `domain/alerts.py` | feed, details, timeline; `ack_alert` / `resolve_alert` (shared with B's inbound SMS handler) |
 | `domain/rules.py` | rule CRUD; every write bumps `config_version` + `NOTIFY config_changed` in the same transaction |
+| `ws.py` | WebSocket `/ws`: one `LISTEN alerts_changed` per instance, batched reads by id, per-client filters, ping, `resync` |
 | `stubs.py` | TEMPORARY stand-ins for `libs/conditions` (paths, live fields, condition check) until A merges it |
 
 ## Login is a mock
@@ -31,6 +32,17 @@ a warning.
 | create / edit / disable / delete a team rule | manager of that team, admin |
 | personal rule (`owner: {user}`) | that user, admin |
 | move a rule to another owner | rights on both owners |
+
+## WebSocket
+
+`ws://<host>/ws?token=<jwt>`, messages in [`contracts/ws-messages.md`](../../contracts/ws-messages.md).
+
+- One `LISTEN alerts_changed` connection per API instance. Ids arriving within 100 ms are read in one query and
+  pushed as `alert.upsert` to clients whose `team` / `user` / `severity` filters match (state is filtered by the
+  client, so it sees an alert leave its `state` filter).
+- Listener lost → reconnect with backoff (0.5 s … 10 s) → `resync` to every client.
+- A client that falls 2000 messages behind gets one `resync` instead of the backlog.
+- Close codes: `4401` invalid / expired token, `4408` two unanswered pings (ping every 20 s).
 
 ## For other services
 

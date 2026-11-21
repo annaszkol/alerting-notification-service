@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import psycopg
+from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from services.api import schemas
@@ -43,7 +44,8 @@ def insert_alert(conn: psycopg.Connection, **values: Any) -> int:
             row[key] = Jsonb(row[key])
     columns = ", ".join(row)
     placeholders = ", ".join(f"%({k})s" for k in row)
-    return conn.execute(f"INSERT INTO alerts ({columns}) VALUES ({placeholders}) RETURNING id", row).fetchone()["id"]
+    sql = f"INSERT INTO alerts ({columns}) VALUES ({placeholders}) RETURNING id"
+    return conn.cursor(row_factory=dict_row).execute(sql, row).fetchone()["id"]
 
 
 def assert_matches(schema: str, data: Any) -> None:
