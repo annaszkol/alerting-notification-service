@@ -1,0 +1,102 @@
+# Demo people, teams, on-call rotations and channel preferences (owner B, spec §8, §12).
+# Fictional people; emails use the reserved example.test domain, phones are fake numbers for the fake gateway.
+#
+# Who covers which acceptance test (spec §13):
+#   1  settlements on-call (rotation dave -> carol -> erin) gets phone + SMS
+#   3  rates team gets the email for large rejections
+#   4  anna: SMS 08:00-20:00 her time, otherwise email (rule `anna-payments-critical`)
+#   12 escalation goes to counterparty-support; approvals by managers (bob, carol, erin, grace, henry)
+#   14 anna is in rates AND payments: an event matching both teams' rules sends her one SMS
+#   15 SMS limit 5 / 10 min per person
+#
+# Loaded by `python -m deploy.seed.load` (compose service `seed`). Existing rows are kept, so edits made in the UI
+# survive a restart; `--reset` overwrites them with this file.
+
+users:
+  - { id: admin, name: Ada Admin, email: admin@example.test, timezone: Europe/Warsaw, is_admin: true }
+  - { id: anna, name: Anna Kowalska, email: anna@example.test, phone: "+48500000001", timezone: Europe/Warsaw }
+  - { id: bob, name: Bob Marsh, email: bob@example.test, phone: "+48500000002", timezone: Europe/Warsaw }
+  - { id: carol, name: Carol Diaz, email: carol@example.test, phone: "+48500000003", timezone: Europe/Warsaw }
+  - { id: dave, name: Dave Okafor, email: dave@example.test, phone: "+48500000004", timezone: Europe/Warsaw }
+  - { id: erin, name: Erin Novak, email: erin@example.test, phone: "+48500000005", timezone: Europe/Warsaw }
+  - { id: frank, name: Frank Liu, email: frank@example.test, phone: "+48500000006", timezone: Europe/Warsaw }
+  - { id: grace, name: Grace Mensah, email: grace@example.test, phone: "+48500000007", timezone: Europe/London }
+  - { id: henry, name: Henry Silva, email: henry@example.test, phone: "+48500000008", timezone: Europe/Warsaw }
+  - { id: ivan, name: Ivan Petrov, email: ivan@example.test, phone: "+48500000009", timezone: Europe/Warsaw }
+  - { id: julia, name: Julia Park, email: julia@example.test, phone: "+48500000010", timezone: America/New_York }
+
+teams:
+  - id: settlements
+    name: Settlements
+    members: { carol: manager, dave: member, erin: member }
+    oncall: { rotation: [dave, carol, erin], shift_length: 1d, handoff_time: "09:00", timezone: Europe/Warsaw, starts_on: 2026-11-02 }
+    preferences:
+      by_severity:
+        info: [ui]
+        warning: [ui]
+        error: [sms, email]
+        critical: [phone, sms]
+      limits: { sms: { max: 5, window: 10m } }
+
+  - id: pricing
+    name: Pricing
+    members: { grace: manager, frank: member, julia: member }
+    oncall: { rotation: [frank, julia, grace], shift_length: 7d, handoff_time: "10:00", timezone: Europe/London, starts_on: 2026-11-02 }
+    preferences:
+      by_severity:
+        info: [ui]
+        error: [email]
+        critical: [sms, email]
+      limits: { sms: { max: 5, window: 10m } }
+
+  - id: rates
+    name: Rates
+    members: { bob: manager, anna: member }
+    preferences:
+      by_severity:
+        info: [ui]
+        error: [email]
+      limits: { sms: { max: 5, window: 10m } }
+
+  - id: payments
+    name: Payments
+    members: { erin: manager, anna: member }
+    oncall: { rotation: [anna, erin], shift_length: 1d, handoff_time: "09:00", timezone: Europe/Warsaw, starts_on: 2026-11-02 }
+    preferences:
+      by_severity:
+        info: [ui]
+        error: [email]
+        critical:
+          schedule: [{ between: "08:00-20:00", use: [sms] }]
+          otherwise: [email]
+      limits: { sms: { max: 5, window: 10m } }
+
+  # Escalation target of the `settlement-timeout` runbook (spec §7).
+  - id: counterparty-support
+    name: Counterparty support
+    members: { henry: manager, ivan: member }
+    oncall: { rotation: [ivan, henry], shift_length: 1d, handoff_time: "09:00", timezone: Europe/Warsaw, starts_on: 2026-11-02 }
+    preferences:
+      by_severity:
+        info: [ui]
+        warning: [email]
+        critical: [phone, sms]
+
+# Personal preferences override the team defaults.
+preferences:
+  anna:
+    by_severity:
+      info: [ui]
+      warning: [ui]
+      error: [email]
+      critical:
+        schedule: [{ between: "08:00-20:00", use: [sms] }]
+        otherwise: [email]
+    limits: { sms: { max: 5, window: 10m } }
+  bob:
+    by_severity:
+      info: [ui]
+      error:
+        schedule: [{ between: "09:00-17:00", days: [1, 2, 3, 4, 5], use: [email] }]
+        otherwise: [ui]
+      critical: [sms, email]
