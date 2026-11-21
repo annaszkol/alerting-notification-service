@@ -94,3 +94,47 @@ class Rotation:
         elapsed = local - anchor.replace(tzinfo=None)
         shift = elapsed // self.shift_length
         return self.users[shift % len(self.users)]
+
+
+# --- throttling limits ---------------------------------------------------------------------------------
+
+_UNITS = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days", "w": "weeks"}
+
+
+def parse_window(value: str) -> timedelta:
+    """ "10m", "1h", "30s" -> timedelta."""
+    value = str(value).strip()
+    unit = _UNITS.get(value[-1:])
+    if unit is None or not value[:-1].isdigit() or int(value[:-1]) <= 0:
+        raise ValueError(f"bad window {value!r}, expected e.g. 10m")
+    return timedelta(**{unit: int(value[:-1])})
+
+
+@dataclass(frozen=True)
+class Limit:
+    max: int
+    window: timedelta
+
+
+# Contract (contracts/delivery.md): SMS 5 / 10 min, phone 5 / 10 min, email 20 / 10 min, UI unlimited.
+DEFAULT_LIMITS: Mapping[str, Limit] = {
+    "sms": Limit(5, timedelta(minutes=10)),
+    "phone": Limit(5, timedelta(minutes=10)),
+    "email": Limit(20, timedelta(minutes=10)),
+}
+
+
+def merge_limits(*layers: Mapping[str, Any] | None) -> dict[str, Limit]:
+    """DEFAULT_LIMITS overridden per channel by each layer in order (team defaults, then the person).
+    A layer value of null removes the limit for that channel. Invalid entries are ignored."""
+    merged: dict[str, Limit] = dict(DEFAULT_LIMITS)
+    for layer in layers:
+        for channel, raw in (layer or {}).items():
+            if raw is None:
+                merged.pop(channel, None)
+                continue
+            try:
+                merged[channel] = Limit(int(raw["max"]), parse_window(raw["window"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+    return merged
