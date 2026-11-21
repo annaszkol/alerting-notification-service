@@ -28,6 +28,7 @@ tags:
   - { name: preferences }
   - { name: oncall }
   - { name: suggestions }
+  - { name: work }
   - { name: admin }
   - { name: inbound }
 
@@ -76,6 +77,79 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Me" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+
+  # --- work time (spec §6 "Czas pracy") ------------------------------------------------------------------
+  /me/work:
+    get:
+      tags: [work]
+      operationId: getMyWork
+      summary: Am I at work, since when, today's total, recent sessions
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkStatus" }
+    put:
+      tags: [work]
+      operationId: setMyWorkTracking
+      summary: Switch "notify me only while at work" on or off
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [tracking]
+              properties:
+                tracking: { type: boolean }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkStatus" }
+  /me/work/start:
+    post:
+      tags: [work]
+      operationId: startWork
+      summary: Start working (opens a session, switches tracking on); starting twice keeps the open session
+      responses:
+        "200":
+          description: At work
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkStatus" }
+  /me/work/stop:
+    post:
+      tags: [work]
+      operationId: stopWork
+      responses:
+        "200":
+          description: Not at work any more
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkStatus" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /work/active:
+    get:
+      tags: [work]
+      operationId: listAtWork
+      summary: People who track their work time and are at work now
+      responses:
+        "200":
+          description: People at work
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [userId, startedAt]
+                  properties:
+                    userId: { type: string }
+                    startedAt: { type: string, format: date-time }
 
   # --- alerts ---------------------------------------------------------------------------------------------
   /alerts:
@@ -1121,6 +1195,27 @@ components:
               id: { $ref: "#/components/schemas/Slug" }
               name: { type: string }
               role: { $ref: "#/components/schemas/TeamRole" }
+
+    # --- work time ----------------------------------------------------------------------------------------
+    WorkSession:
+      type: object
+      required: [startedAt, endedAt, endedHow]
+      properties:
+        startedAt: { type: string, format: date-time }
+        endedAt: { type: [string, "null"], format: date-time }
+        endedHow: { enum: [user, auto, null], description: "auto = closed after 12 h without Stop" }
+    WorkStatus:
+      type: object
+      required: [tracking, active, startedAt, autoStopAt, workedTodaySeconds, recent]
+      properties:
+        tracking:
+          type: boolean
+          description: "true: email / SMS / phone only while at work (on-call and critical phone calls excepted)"
+        active: { type: boolean }
+        startedAt: { type: [string, "null"], format: date-time }
+        autoStopAt: { type: [string, "null"], format: date-time, description: "a session counts for 12 h at most" }
+        workedTodaySeconds: { type: integer, description: "today in the person's time zone" }
+        recent: { type: array, items: { $ref: "#/components/schemas/WorkSession" } }
 
     # --- alerts -------------------------------------------------------------------------------------------
     AlertSummary:
