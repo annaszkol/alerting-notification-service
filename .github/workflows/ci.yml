@@ -56,6 +56,11 @@ jobs:
       - run: docker compose -f deploy/docker-compose.yml config --quiet
       - run: docker compose -f deploy/docker-compose.yml up -d --build
       - run: deploy/smoke-test.sh
+      - name: Video demo rehearsal (spec §11); SMS limits lifted because the smoke test already sent SMS
+        run: |
+          docker compose -f deploy/docker-compose.yml exec -T postgres psql -U alerting -d alerting \
+            -c "UPDATE channel_preferences SET limits = '{\"sms\": null}'::jsonb"
+          NO_PAUSE=1 deploy/demo.sh events burst outage runbook
       - if: failure()
         run: docker compose -f deploy/docker-compose.yml logs --no-color
       - if: always()
