@@ -2,6 +2,7 @@
 // runbooks, with the tester next to it. Saves one JSON document; the processor picks it up from the next event
 // (config_version + NOTIFY config_changed), no restart (§13 no. 6).
 import {
+  Accordion,
   Alert,
   Anchor,
   Badge,
@@ -26,6 +27,7 @@ import { useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api } from "../api/client";
+import { describeCondition } from "../rules/condition";
 import { useRunbooks, useTeams, useUsers } from "../api/directory";
 import { SEVERITIES, type AlertDetail, type Owner, type RuleDoc, type Severity } from "../api/types";
 import { ownerLabel, usePermissions } from "../auth/permissions";
@@ -38,7 +40,7 @@ import { formatTime } from "../components/time";
 import { ConditionBuilder } from "../rules/ConditionBuilder";
 import { RouteEditor } from "../rules/RouteEditor";
 import { EMPTY_SAMPLE, parseSample, RuleTester, type Sample } from "../rules/RuleTester";
-import { newRule, ruleProblems, toInput } from "../rules/ruleDoc";
+import { newRule, routeSummary, ruleProblems, toInput } from "../rules/ruleDoc";
 
 const COLORS = ["red", "orange", "yellow", "green", "blue", "grape", "gray"];
 
@@ -165,15 +167,38 @@ function RuleForm({ initial }: { initial?: RuleDoc }) {
       <Grid gutter="md">
         <Grid.Col span={{ base: 12, lg: 7 }}>
           <Stack>
+            <Card withBorder padding="md" bg="var(--mantine-color-default-hover)">
+              <Text size="xs" tt="uppercase" fw={700} c="dimmed" mb={4}>
+                This rule in one sentence
+              </Text>
+              <Text>
+                <b>When</b> {describeCondition(current.when)}, <b>notify</b> {routeSummary(current.route)}.
+              </Text>
+            </Card>
             <Card withBorder>
-              <Title order={4} mb="xs">
-                1. Basics
-              </Title>
+              <Title order={4}>1. When</Title>
+              <Text size="sm" c="dimmed" mb="sm">
+                Which events should raise this alert? Pick a field, then what it should be. Paste an example event in the tester on the right to pick from its fields too.
+              </Text>
+              <ConditionBuilder value={current.when} onChange={(when) => set({ when })} paths={paths} readOnly={readOnly} />
+            </Card>
+            <Card withBorder>
+              <Title order={4}>2. Notify</Title>
+              <Text size="sm" c="dimmed" mb="sm">
+                Who hears about it, and how. Without anyone here the alert only shows in the app.
+              </Text>
+              <RouteEditor value={current.route ?? []} onChange={(route) => set({ route })} users={userList} teams={teamList} readOnly={readOnly} />
+            </Card>
+            <Card withBorder>
+              <Title order={4}>3. Name it</Title>
+              <Text size="sm" c="dimmed" mb="sm">
+                The alert title people see. Use {"{{field}}"} to put a value from the event in it.
+              </Text>
               <Stack gap="xs">
                 <Group grow align="start">
                   <TextInput
-                    label="Title template"
-                    description="{{path}} reads the event, {{$field}} the letter; {{$count}} stays live"
+                    label="Alert title"
+                    description="e.g. {{$service}} or {{workflowId}}; {{$count}} shows how many times it happened"
                     placeholder="Settlement failed: {{workflowId}}"
                     value={present.title ?? ""}
                     readOnly={readOnly}
@@ -185,8 +210,8 @@ function RuleForm({ initial }: { initial?: RuleDoc }) {
                 </Group>
                 <Group grow align="start">
                   <TextInput
-                    label="Rule id"
-                    description={isNew ? "Unique; cannot be changed later" : "Cannot be changed"}
+                    label="Rule name"
+                    description={isNew ? "Filled from the title; cannot be changed later" : "Cannot be changed"}
                     value={current.id}
                     readOnly={!isNew || readOnly}
                     onChange={(e) => {
@@ -196,7 +221,7 @@ function RuleForm({ initial }: { initial?: RuleDoc }) {
                   />
                   <Select
                     label="Owner"
-                    description="The alert goes to the owner’s feed"
+                    description="Whose alert it is: it shows in their alert list"
                     data={ownerOptions}
                     value={ownerKey(owner)}
                     allowDeselect={false}
@@ -204,73 +229,14 @@ function RuleForm({ initial }: { initial?: RuleDoc }) {
                     onChange={(k) => k && set({ owner: ownerFromKey(k) })}
                   />
                 </Group>
-                <Switch label="Enabled" checked={current.enabled !== false} disabled={readOnly} onChange={(e) => set({ enabled: e.currentTarget.checked })} />
+                <Switch label="Rule is on" checked={current.enabled !== false} disabled={readOnly} onChange={(e) => set({ enabled: e.currentTarget.checked })} />
               </Stack>
             </Card>
-
-            <Card withBorder>
-              <Title order={4}>2. When (condition)</Title>
-              <Text size="xs" c="dimmed" mb="xs">
-                Fields: $-fields come from the mapping (e.g. $severity, $service, $sourceId); other paths read the raw event (a.b, items.0, labels["a.b"]). Paste a sample event in the
-                tester to get field suggestions.
-              </Text>
-              <ConditionBuilder value={current.when} onChange={(when) => set({ when })} paths={paths} readOnly={readOnly} />
-            </Card>
-
-            <Card withBorder>
-              <Title order={4} mb="xs">
-                3. Who is notified
-              </Title>
-              <RouteEditor value={current.route ?? []} onChange={(route) => set({ route })} users={userList} teams={teamList} readOnly={readOnly} />
-            </Card>
-
-            <Card withBorder>
-              <Title order={4} mb="xs">
-                4. How the alert looks
-              </Title>
-              <Stack gap="xs">
-                <Textarea
-                  label="Body template"
-                  placeholder="Step {{step}}: {{error.message}}"
-                  autosize
-                  minRows={2}
-                  value={present.body ?? ""}
-                  readOnly={readOnly}
-                  onChange={(e) => set({ present: { ...present, body: e.currentTarget.value } })}
-                />
-                <TagsInput
-                  label="Fields shown on the alert"
-                  description="Paths; press Enter after each"
-                  data={paths}
-                  value={present.fields ?? []}
-                  readOnly={readOnly}
-                  onChange={(fields) => set({ present: { ...present, fields } })}
-                  clearable
-                />
-                <Group grow>
-                  <Select label="Colour" placeholder="default" data={COLORS} value={present.color ?? null} readOnly={readOnly} clearable onChange={(color) => set({ present: { ...present, color: color ?? undefined } })} />
-                  <Select
-                    label="Severity override"
-                    description="e.g. business events without a severity"
-                    placeholder="from the event"
-                    data={SEVERITIES}
-                    value={present.severity ?? null}
-                    readOnly={readOnly}
-                    clearable
-                    onChange={(s) => set({ present: { ...present, severity: (s as Severity) ?? undefined } })}
-                  />
-                </Group>
-                <Text size="xs" c="dimmed">
-                  Live fields: {LIVE_FIELDS.join(", ")} are filled when the alert is shown or sent.
-                </Text>
-              </Stack>
-            </Card>
-
-            <Card withBorder>
-              <Title order={4} mb="xs">
-                5. Grouping, auto-resolve, runbooks
-              </Title>
-              <Stack gap="xs">
+            <Accordion variant="contained" radius="md">
+              <Accordion.Item value="grouping">
+                <Accordion.Control>More options: grouping, auto-resolve, runbooks</Accordion.Control>
+                <Accordion.Panel>
+                  <Stack gap="xs">
                 <TagsInput
                   label="Group events by"
                   description="Same values = same alert. Empty = $correlationKey, else $service + $summary"
@@ -312,7 +278,50 @@ function RuleForm({ initial }: { initial?: RuleDoc }) {
                   onChange={(ids) => set({ runbooks: ids })}
                 />
               </Stack>
-            </Card>
+                </Accordion.Panel>
+              </Accordion.Item>
+              <Accordion.Item value="looks">
+                <Accordion.Control>More options: how the alert looks</Accordion.Control>
+                <Accordion.Panel>
+                  <Stack gap="xs">
+                <Textarea
+                  label="Body template"
+                  placeholder="Step {{step}}: {{error.message}}"
+                  autosize
+                  minRows={2}
+                  value={present.body ?? ""}
+                  readOnly={readOnly}
+                  onChange={(e) => set({ present: { ...present, body: e.currentTarget.value } })}
+                />
+                <TagsInput
+                  label="Fields shown on the alert"
+                  description="Paths; press Enter after each"
+                  data={paths}
+                  value={present.fields ?? []}
+                  readOnly={readOnly}
+                  onChange={(fields) => set({ present: { ...present, fields } })}
+                  clearable
+                />
+                <Group grow>
+                  <Select label="Colour" placeholder="default" data={COLORS} value={present.color ?? null} readOnly={readOnly} clearable onChange={(color) => set({ present: { ...present, color: color ?? undefined } })} />
+                  <Select
+                    label="Severity override"
+                    description="e.g. business events without a severity"
+                    placeholder="from the event"
+                    data={SEVERITIES}
+                    value={present.severity ?? null}
+                    readOnly={readOnly}
+                    clearable
+                    onChange={(s) => set({ present: { ...present, severity: (s as Severity) ?? undefined } })}
+                  />
+                </Group>
+                <Text size="xs" c="dimmed">
+                  Live fields: {LIVE_FIELDS.join(", ")} are filled when the alert is shown or sent.
+                </Text>
+              </Stack>
+                </Accordion.Panel>
+              </Accordion.Item>
+            </Accordion>
 
             <details>
               <summary>

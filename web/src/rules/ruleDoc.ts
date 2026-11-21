@@ -53,16 +53,27 @@ export function ruleProblems(doc: RuleDoc): string[] {
   return out;
 }
 
+const CHANNEL_LABEL: Record<string, string> = { ui: "the app", email: "email", sms: "SMS", phone: "phone call" };
+
+function words(items: string[]): string {
+  return items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+/** Who gets notified, as words: `on-call of settlements by phone call and SMS`. */
 export function routeSummary(route: RouteEntry[] | undefined): string {
-  if (!route?.length) return "UI only";
+  if (!route?.length) return "nobody (the alert only shows in the app)";
   return route
     .map((entry) => {
       const to = entry.to as Record<string, string>;
       const kind = recipientKind(entry.to);
-      const who = kind === "oncall" ? `on-call ${to.oncall}` : kind === "user" ? to.user : `${to.team}${to.role ? ` ${to.role}s` : ""}`;
+      const who = kind === "oncall" ? `on-call of ${to.oncall}` : kind === "user" ? to.user : `team ${to.team}${to.role ? ` (${to.role}s)` : ""}`;
       const ch = entry.channels;
-      const how = Array.isArray(ch) ? ch.join("+") : ch && typeof ch === "object" ? "by time" : "preferences";
-      return `${who} (${how})`;
+      const how = Array.isArray(ch)
+        ? `by ${words(ch.map((c) => CHANNEL_LABEL[c] ?? c))}`
+        : ch && typeof ch === "object"
+          ? "by channels depending on the time of day"
+          : "by their own preferences";
+      return `${who} ${how}`;
     })
-    .join(", ");
+    .join("; ");
 }

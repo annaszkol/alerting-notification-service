@@ -27,10 +27,10 @@ const common = { "GET /rules": RULES, "GET /users": [], "GET /teams": [{ id: "ra
 it("a member may toggle only their personal rule", async () => {
   stubApi({ ...common, "GET /me": ME_MEMBER });
   renderWith(<Rules />);
-  const teamRow = (await screen.findByText("rates-large-rejections")).closest("tr")!;
+  const teamRow = (await screen.findByText("rates-large-rejections")).closest<HTMLElement>("[data-rule]")!;
   await waitFor(() => expect(within(teamRow).getByRole("switch")).toBeDisabled());
   expect(within(teamRow).getByRole("link", { name: "View" })).toBeInTheDocument();
-  const ownRow = screen.getByText("dave-own").closest("tr")!;
+  const ownRow = screen.getByText("dave-own").closest<HTMLElement>("[data-rule]")!;
   expect(within(ownRow).getByRole("switch")).toBeEnabled();
   expect(within(ownRow).getByRole("link", { name: "Edit" })).toBeInTheDocument();
 });
@@ -38,7 +38,7 @@ it("a member may toggle only their personal rule", async () => {
 it("a manager enables the team rule with PATCH {enabled}", async () => {
   const calls = stubApi({ ...common, "GET /me": ME_MANAGER, "PATCH /rules/rates-large-rejections": (b: unknown) => ({ ...RULES[0], ...(b as object) }) });
   renderWith(<Rules />);
-  const row = (await screen.findByText("rates-large-rejections")).closest("tr")!;
+  const row = (await screen.findByText("rates-large-rejections")).closest<HTMLElement>("[data-rule]")!;
   await waitFor(() => expect(within(row).getByRole("switch")).toBeEnabled());
   fireEvent.click(within(row).getByRole("switch"));
   await waitFor(() => expect(calls).toContainEqual({ method: "PATCH", path: "/rules/rates-large-rejections", body: { enabled: false } }));

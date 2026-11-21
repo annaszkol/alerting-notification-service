@@ -68,3 +68,17 @@ describe("problems", () => {
     expect(conditionProblems(group("all", [leaf("a", "eq", "x")]))).toEqual([]);
   });
 });
+
+describe("sentences", () => {
+  it("describes a condition in words", async () => {
+    const { describeCondition } = await import("./condition");
+    expect(describeCondition({ all: [{ $service: "payments-api" }, { $severity: { gte: "critical" } }] })).toBe("Service is payments-api and Severity is at least critical");
+    expect(describeCondition({ any: [{ "labels.env": "prod" }, { not: { $status: "resolved" } }] })).toBe("labels.env is prod or not Status is resolved");
+    expect(describeCondition({ all: [] })).toBe("any event");
+  });
+
+  it("maps plain field names to letter fields and back", async () => {
+    const { fieldLabel, fieldPath } = await import("./condition");
+    expect([fieldLabel("$summary"), fieldPath("Message"), fieldPath("error.code")]).toEqual(["Message", "$summary", "error.code"]);
+  });
+});

@@ -20,6 +20,8 @@ class ResizeObserverStub {
   disconnect() {}
 }
 window.ResizeObserver = window.ResizeObserver ?? (ResizeObserverStub as unknown as typeof ResizeObserver);
+// Combobox dropdowns (Select) scroll the selected option into view.
+Element.prototype.scrollIntoView = Element.prototype.scrollIntoView ?? (() => {});
 
 // The rule and mapping editors are large forms; under a parallel CI run 1 s for findBy* is too tight.
 import { configure } from "@testing-library/react";

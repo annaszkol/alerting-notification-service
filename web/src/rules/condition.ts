@@ -14,20 +14,76 @@ import type { Condition } from "../api/types";
 export const OPERATORS = ["eq", "ne", "gt", "gte", "lt", "lte", "in", "not_in", "glob", "regex", "contains", "exists"] as const;
 export type Operator = (typeof OPERATORS)[number];
 
+/** Operators read as words in a sentence: "severity is at least warning". */
 export const OPERATOR_LABEL: Record<Operator, string> = {
-  eq: "equals",
-  ne: "does not equal",
-  gt: ">",
-  gte: "≥",
-  lt: "<",
-  lte: "≤",
+  eq: "is",
+  ne: "is not",
+  gt: "is more than",
+  gte: "is at least",
+  lt: "is less than",
+  lte: "is at most",
   in: "is one of",
   not_in: "is none of",
-  glob: "matches glob (* ?)",
+  glob: "matches pattern",
   regex: "matches regex",
   contains: "contains",
-  exists: "exists",
+  exists: "is present",
 };
+
+/** Letter fields under plain names. Capitalised, so they never clash with a raw payload key like `service`. */
+export const FIELD_LABEL: Record<string, string> = {
+  $service: "Service",
+  $severity: "Severity",
+  $summary: "Message",
+  $sourceId: "Source",
+  $environment: "Environment",
+  $schema: "Event type",
+  $instance: "Host",
+  $status: "Status",
+  $correlationKey: "Problem id",
+};
+const LABEL_FIELD = Object.fromEntries(Object.entries(FIELD_LABEL).map(([k, v]) => [v, k]));
+
+/** `$service` -> `Service`; raw payload paths stay as they are. */
+export function fieldLabel(path: string): string {
+  return FIELD_LABEL[path] ?? path;
+}
+
+/** What the user typed or picked -> the path stored in the rule. */
+export function fieldPath(label: string): string {
+  return LABEL_FIELD[label.trim()] ?? label;
+}
+
+function describeValue(value: unknown): string {
+  if (Array.isArray(value)) return value.map(describeValue).join(", ");
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
+}
+
+/** The condition as one English sentence fragment, e.g. `Service is payments-api and Severity is at least critical`. */
+export function describeCondition(cond: unknown): string {
+  return describeNode(parseCondition(cond), true);
+}
+
+function describeNode(node: CondNode, top = false): string {
+  switch (node.kind) {
+    case "group": {
+      if (node.children.length === 0) return top ? "any event" : "(nothing)";
+      const parts = node.children.map((c) => describeNode(c));
+      const text = parts.join(node.op === "all" ? " and " : " or ");
+      return top || parts.length === 1 ? text : `(${text})`;
+    }
+    case "not":
+      return `not ${describeNode(node.child)}`;
+    case "raw":
+      return "a custom condition";
+    case "leaf": {
+      const field = fieldLabel(node.path) || "(field)";
+      if (node.op === "exists") return node.text === "false" ? `${field} is missing` : `${field} is present`;
+      return `${field} ${OPERATOR_LABEL[node.op]} ${describeValue(fromText(node.text, node.op))}`;
+    }
+  }
+}
 
 export type CondNode =
   | { id: number; kind: "group"; op: "all" | "any"; children: CondNode[] }
