@@ -161,15 +161,19 @@ def test_seeded_routing_for_spec_scenarios(database):
             alert = AlertForPlanning(id=alert_id, rule_id=rule.id, severity=severity, first_event_id=event)
             return [(n.user_id, n.channel) for n in planner(conn, alert, rule, when).notifications]
 
-        # test 1: settlements on-call (dave on 2026-11-03 after 09:00 Warsaw) gets phone + SMS
+        # test 1: settlements on-call gets phone + SMS (rotation starts with dave on 2026-11-02 09:00 Warsaw)
         settlements = RuleForPlanning(
             "settlements-prod-failures",
             {"team": "settlements"},
             [{"to": {"oncall": "settlements"}, "channels": ["phone", "sms"]}],
         )
-        assert plan(settlements, 1, datetime(2026, 11, 3, 10, 0, tzinfo=UTC)) == [
+        assert plan(settlements, 1, datetime(2026, 11, 2, 10, 0, tzinfo=UTC)) == [
             ("dave", Channel.PHONE),
             ("dave", Channel.SMS),
+        ]
+        assert plan(settlements, 11, datetime(2026, 11, 3, 10, 0, tzinfo=UTC), event="evt-1b") == [
+            ("carol", Channel.PHONE),  # next day: next person
+            ("carol", Channel.SMS),
         ]
 
         # test 4: anna, 08:00-20:00 Warsaw -> SMS, otherwise email
