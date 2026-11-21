@@ -4,7 +4,7 @@ Runs inside the processor's batch transaction. It never commits and never sends 
 
 Scope of this version (feat/notifications-outbox):
 - recipients: `user`, `team`, `{team, role}`; `oncall` resolves to every team member until rotations land
-  (feat/preferences-oncall),
+  (feat/preferences-oncall); unknown users and teams resolve to nobody,
 - channels: an explicit list from the rule; `schedule` and `preferences` fall back to `ui` (stub),
 - one notification per (person, channel, first event), even if several route entries or rules hit that person,
 - no throttling yet (feat/throttling): every row is `pending`.
@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any
 
 import psycopg
 
@@ -28,38 +28,16 @@ from contracts.delivery import (
     PlanResult,
     RuleForPlanning,
 )
+from services.delivery.directory import Directory, SqlDirectory
 
 STUB_CHANNELS: tuple[Channel, ...] = (Channel.UI,)
-
-
-class Directory(Protocol):
-    """Who is in which team. The SQL implementation comes with the users/teams tables."""
-
-    def team_members(self, conn: psycopg.Connection, team: str, role: str | None = None) -> list[str]: ...
-
-    def on_call(self, conn: psycopg.Connection, team: str, now: datetime) -> list[str]: ...
-
-
-@dataclass(frozen=True)
-class StaticDirectory:
-    """In-memory directory: {team: {user_id: role}}. Used by tests and as the stub until the tables exist."""
-
-    teams: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
-
-    def team_members(self, conn: psycopg.Connection, team: str, role: str | None = None) -> list[str]:
-        members = self.teams.get(team, {})
-        return sorted(user for user, user_role in members.items() if role is None or user_role == role)
-
-    def on_call(self, conn: psycopg.Connection, team: str, now: datetime) -> list[str]:
-        # Stub: no rotations yet, so the whole team is "on call".
-        return self.team_members(conn, team)
 
 
 def resolve_recipients(
     conn: psycopg.Connection, directory: Directory, to: Mapping[str, str], now: datetime
 ) -> list[str]:
     if "user" in to:
-        return [to["user"]]
+        return directory.existing_users(conn, [to["user"]])
     if "oncall" in to:
         return directory.on_call(conn, to["oncall"], now)
     if "team" in to:
@@ -100,7 +78,7 @@ RETURNING id, user_id, channel, kind, status
 class NotificationPlanner:
     """Implements contracts.delivery.PlanNotifications."""
 
-    directory: Directory = field(default_factory=StaticDirectory)
+    directory: Directory = field(default_factory=SqlDirectory)
 
     def __call__(
         self,
@@ -140,6 +118,5 @@ def _planned(rows: Sequence[tuple[Any, ...]]) -> list[PlannedNotification]:
     ]
 
 
-# Default instance for the processor. Team recipients resolve to nobody until the directory is backed by
-# the users/teams tables; `user:` recipients already work.
+# Default instance for the processor: users and teams from the database.
 plan_notifications = NotificationPlanner()
