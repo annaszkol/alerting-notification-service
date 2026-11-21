@@ -5,8 +5,9 @@
   transaction.
 - `decide` (UI / email link) and `decide_by_code` (SMS) check the role, record who decided and how, and let the
   step run (approve) or end the run (reject). A code identifies exactly one request.
-- Email links carry a signed token (HMAC, expiry) naming the approval and the decision; the UI page shows it to the
-  logged-in user and calls `decide`. A decided approval cannot be decided again, so a link works once.
+- Email links carry a signed token (HMAC, 24 h) naming the approval and the person it was emailed to; the page behind
+  it (`/approvals/by-token/{token}`, no login, contracts/openapi.yaml) lets that person approve or reject, still with
+  the role check. A decided approval cannot be decided again, so a link works once.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ import os
 import secrets
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import psycopg
@@ -84,7 +85,7 @@ def request_approval(
 
 @dataclass(frozen=True)
 class Decision:
-    result: str  # approved | rejected | unknown_code | not_allowed | already_decided
+    result: str  # approved | rejected | unknown_code | not_allowed | already_decided | invalid_token
     approval_id: int | None = None
 
 
@@ -145,7 +146,41 @@ def decide_by_code(
     return decide(conn, row[0], decision, user[0], "sms", now, executor)
 
 
-# --- signed email links --------------------------------------------------------------------------------
+# --- agreed entry points for the API (docs/plans/c-api-web.md, agreements 4 and 5) ---------------------
+
+_DECISIONS = {"approve": "approved", "approved": "approved", "reject": "rejected", "rejected": "rejected"}
+
+
+def decide_approval(
+    conn: psycopg.Connection,
+    approval_id: int,
+    actor: str,
+    decision: str,
+    via: str,
+    now: datetime | None = None,
+    executor: Executor | None = None,
+) -> Decision:
+    """Agreement 4. `decision` is `approve` / `reject` (API wording) or `approved` / `rejected`.
+    Results: approved | rejected | unknown_code (404) | not_allowed (403) | already_decided (409)."""
+    if decision not in _DECISIONS:
+        raise ValueError(f"bad decision {decision!r}")
+    return decide(conn, approval_id, _DECISIONS[decision], actor, via, now or datetime.now(UTC), executor)
+
+
+def decide_by_token(
+    conn: psycopg.Connection, token: str, decision: str, now: datetime | None = None, executor: Executor | None = None
+) -> Decision:
+    """`POST /approvals/by-token/{token}` (no login): the token names the approval and the person it was emailed
+    to; their role is still checked. Result `invalid_token` for a bad or expired token (410 / 404)."""
+    now = now or datetime.now(UTC)
+    verified = verify_approval_token(token, now)
+    if verified is None:
+        return Decision("invalid_token")
+    approval_id, user = verified
+    return decide_approval(conn, approval_id, user, decision, "email", now, executor)
+
+
+# --- signed email links (agreement 5) ------------------------------------------------------------------
 
 
 def _secret() -> bytes:
@@ -163,22 +198,24 @@ def _unb64(text: str) -> bytes:
     return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
 
 
-def sign_link(approval_id: int, decision: str, now: datetime, secret: bytes | None = None) -> str:
-    body = _b64(json.dumps({"a": approval_id, "d": decision, "exp": int((now + TOKEN_TTL).timestamp())}).encode())
+def sign_approval_token(approval_id: int, user_id: str, now: datetime, secret: bytes | None = None) -> str:
+    """HMAC-SHA256 token for the email link of one approval request, addressed to one person, valid 24 h.
+    Single use: a decided approval cannot be decided again."""
+    body = _b64(json.dumps({"a": approval_id, "u": user_id, "exp": int((now + TOKEN_TTL).timestamp())}).encode())
     mac = _b64(hmac.new(secret or _secret(), body.encode(), hashlib.sha256).digest())
     return f"{body}.{mac}"
 
 
-def verify_link(token: str, now: datetime, secret: bytes | None = None) -> tuple[int, str] | None:
-    """(approval_id, decision) for a valid, unexpired token; None otherwise."""
+def verify_approval_token(token: str, now: datetime, secret: bytes | None = None) -> tuple[int, str] | None:
+    """(approval_id, user_id) for a valid, unexpired token; None otherwise."""
     try:
         body, mac = token.split(".")
         expected = _b64(hmac.new(secret or _secret(), body.encode(), hashlib.sha256).digest())
         if not hmac.compare_digest(mac, expected):
             return None
         data = json.loads(_unb64(body))
-        if now.timestamp() > data["exp"] or data["d"] not in ("approved", "rejected"):
+        if now.timestamp() > data["exp"]:
             return None
-        return int(data["a"]), data["d"]
+        return int(data["a"]), str(data["u"])
     except (ValueError, KeyError, TypeError):
         return None

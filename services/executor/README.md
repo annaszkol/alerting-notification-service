@@ -63,8 +63,11 @@ makes a target fail the next N calls or always (spec §13 test 12: "mock set to 
 - `decide_by_code(conn, code, phone, decision, now)`: `APPROVE <code>` / `REJECT <code>` by SMS; only from the phone
   of someone with that role; a code decides exactly one request. The inbound SMS endpoint (`feat/inbound-sms-codes`)
   calls it.
-- `decide(conn, approval_id, decision, user, via, now)`: UI and email links; checks the role; a decided request
-  cannot be decided again (links work once).
-- Email links: `PUBLIC_BASE_URL/approvals/<token>`; the token is HMAC-signed with `APPROVAL_LINK_SECRET`, names the
-  approval and the decision, and expires after 24 h (`verify_link`). The UI page (C) shows it and calls `decide`.
+- `decide_approval(conn, approval_id, actor, decision, via)` (agreement 4 in docs/plans/c-api-web.md): UI decisions;
+  `decision` is `approve` / `reject`; checks the role; a decided request cannot be decided again. Results map to
+  HTTP: `not_allowed` → 403, `unknown_code` → 404, `already_decided` → 409.
+- Email: one link per approver, `PUBLIC_BASE_URL/approvals/<token>`. `sign_approval_token` / `verify_approval_token`
+  (agreement 5): HMAC-SHA256 with `APPROVAL_LINK_SECRET`, names the approval **and the person it was emailed to**,
+  24 h. `decide_by_token(conn, token, decision)` backs `POST /approvals/by-token/{token}` (no login): the addressee's
+  role is still checked, `invalid_token` for a bad or expired token.
 - The approval SMS starts with the codes, so cutting it to 160 characters never loses them.
