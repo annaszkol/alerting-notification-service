@@ -55,6 +55,5 @@ a warning.
 
 ## Tests
 
-`uv run pytest services/api` (DB tests need `TEST_DATABASE_URL`). Until A's migrations for `rules`,
-`config_version` and `alerts` are merged, the tests create those tables from
-[`tests/sql/assumed_tables.sql`](tests/sql/assumed_tables.sql); in compose those endpoints return 500 until then.
+`uv run pytest services/api` (DB tests need `TEST_DATABASE_URL`). Tests run on the real migrations, including A's
+`alerts`, `rules` and `config_version` (`db/migrations/202611221000_alerts_rules_config.sql`).

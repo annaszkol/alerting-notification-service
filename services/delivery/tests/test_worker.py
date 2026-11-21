@@ -124,13 +124,6 @@ def database():
     if not TEST_DATABASE_URL:
         pytest.skip("TEST_DATABASE_URL not set")
     with temporary_database("test_worker", migrate=True) as conninfo:
-        with psycopg.connect(conninfo, autocommit=True) as conn:
-            # `alerts` belongs to A and is not migrated yet; minimal shape from spec §8.
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS alerts (
-                       id bigint PRIMARY KEY, title text, body text,
-                       severity text, state text, count integer)"""
-            )
         yield conninfo
 
 

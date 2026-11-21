@@ -20,6 +20,7 @@ import psycopg
 
 from contracts.actions import ActionContext, ActionResult, Approval
 from contracts.delivery import AlertForPlanning, RuleForPlanning, Severity
+from contracts.notify import notify_alerts_changed
 from services.delivery.planning import NotificationPlanner
 
 HTTP_TIMEOUT = 10.0
@@ -184,6 +185,14 @@ class Escalate(DbAction):
                 " ON CONFLICT (alert_id, team_id) DO NOTHING",
                 (ctx.alert.id, team, ctx.step_run_id),
             )
+            # the feed shows the alert to the added team too (alerts.extra_teams, read by the API)
+            added = conn.execute(
+                "UPDATE alerts SET extra_teams = array_append(extra_teams, %s)"
+                " WHERE id = %s AND NOT (%s = ANY(extra_teams))",
+                (team, ctx.alert.id, team),
+            ).rowcount
+            if added:
+                notify_alerts_changed(conn, [ctx.alert.id])
             planned = NotificationPlanner()(
                 conn,
                 AlertForPlanning(

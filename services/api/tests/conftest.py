@@ -1,10 +1,9 @@
-"""API test fixtures: throwaway database (migrations + tables assumed from A), seed users, client."""
+"""API test fixtures: throwaway database (all migrations), seed users, client."""
 
 from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
 
 import psycopg
@@ -17,7 +16,6 @@ from services.api.app import create_app
 from services.api.db import create_pool
 from services.api.settings import Settings
 
-ASSUMED_TABLES = Path(__file__).parent / "sql" / "assumed_tables.sql"
 SECRET = "test-secret-at-least-32-bytes-long-0123456789"
 
 # id, name, is_admin, {team: role}
@@ -43,7 +41,6 @@ def database() -> Iterator[str]:
         pytest.skip("TEST_DATABASE_URL is not set")
     with temporary_database("test_api", migrate=True) as conninfo:
         with psycopg.connect(conninfo) as conn:
-            conn.execute(ASSUMED_TABLES.read_text(encoding="utf-8"))
             for team in TEAMS:
                 conn.execute("INSERT INTO teams (id, name) VALUES (%s, %s)", (team, team.title()))
             for user_id, name, is_admin, teams in USERS:

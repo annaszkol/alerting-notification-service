@@ -2,7 +2,6 @@
 
 import threading
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 import psycopg
 import pytest
@@ -18,11 +17,6 @@ from services.processor import config as config_store
 from services.processor.batch import fingerprint, process_batch
 from services.processor.consumer import decode, handle
 
-ROOT = Path(__file__).resolve().parents[3]
-TABLES = [
-    ROOT / "services/api/tests/sql/assumed_tables.sql",
-    Path(__file__).parent / "sql/spec_tables.sql",
-]
 NOW = datetime(2026, 11, 2, 10, 0, tzinfo=UTC)  # dave on call in settlements; 11:00 in Warsaw (Anna: SMS)
 SOURCE_RULE = {
     "id": "settlements-from-kafka",
@@ -52,8 +46,6 @@ def database():
         pytest.skip("TEST_DATABASE_URL not set")
     with temporary_database("test_processor", migrate=True) as conninfo:
         with psycopg.connect(conninfo) as conn:
-            for sql in TABLES:
-                conn.execute(sql.read_text(encoding="utf-8"))
             apply(conn, load_files(DEFAULT_FILES))  # people, teams, on-call, preferences, runbooks
             for rule in [*ex.RULES, SOURCE_RULE]:
                 conn.execute(

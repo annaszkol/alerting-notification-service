@@ -99,7 +99,7 @@ def load(conn: psycopg.Connection) -> Config:
         if _exists(conn, "sources"):
             for s in cur.execute("SELECT * FROM sources WHERE enabled").fetchall():
                 parser = s.get("parser") or "json"
-                parser_config: dict[str, Any] = {}
+                parser_config: dict[str, Any] = s.get("parser_config") or {}
                 if isinstance(parser, dict):  # {"type": "regex", "pattern": "..."}
                     parser_config, parser = parser, parser.get("type", "json")
                 sources[s["id"]] = Source(
