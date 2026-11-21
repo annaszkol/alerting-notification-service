@@ -20,6 +20,7 @@ No `.env` is needed; defaults are in the compose file. To override them, copy `.
 | API (`/healthz`) | http://localhost:8000 |
 | HTTP ingest (`/healthz`) | http://localhost:8080 |
 | Mailpit (caught emails) | http://localhost:8025 |
+| Fake SMS / phone gateway (messages, replies, outage toggle) | http://localhost:8090 |
 | Postgres | `localhost:5432`, user / password / db: `alerting` |
 | Redpanda (Kafka API) | `localhost:19092`, topic `events.raw` (12 partitions) |
 
