@@ -122,7 +122,7 @@ def database():
 @pytest.fixture
 def conn(database):
     with psycopg.connect(database, autocommit=True) as conn:
-        conn.execute("TRUNCATE runbook_runs, step_runs, users CASCADE")
+        conn.execute("TRUNCATE runbook_runs, step_runs, users, audit_log CASCADE")
         conn.execute("DELETE FROM alerts")
         conn.execute("DELETE FROM processed_events")
         conn.execute("INSERT INTO users (id, name) VALUES ('dave', 'Dave'), ('carol', 'Carol')")
@@ -145,6 +145,14 @@ def run_status(conn, run_id):
 
 def alert_state(conn):
     return conn.execute("SELECT state, resolved_how, resolved_by FROM alerts WHERE id = 1").fetchone()
+
+
+def history(conn, alert_id=1):
+    rows = conn.execute(
+        "SELECT actor, action, details FROM audit_log WHERE target_type = 'alert' AND target_id = %s ORDER BY id",
+        (str(alert_id),),
+    ).fetchall()
+    return [(actor, action, details.get("step")) for actor, action, details in rows]
 
 
 def drain(executor, conn, now, rounds=20):
@@ -218,6 +226,8 @@ def test_successful_retry_resolves_alert_and_skips_escalation(conn):
     assert [s["step_id"] for s in steps(conn, run_id)] == ["check-counterparty", "retry"]
     assert run_status(conn, run_id) == "succeeded"
     assert alert_state(conn) == ("resolved", "runbook", "dave")
+    assert ("dave", "alert.resolved", None) in history(conn)
+    assert history(conn)[0] == ("dave", "run.started", None)
 
 
 @pytest.mark.db
@@ -325,6 +335,8 @@ def test_checklist_records_who_and_when_and_does_not_block(conn):
     with conn.transaction():
         executor.mark_done(conn, created[0]["id"], "carol", T0 + timedelta(minutes=3))
     assert run_status(conn, run_id) == "succeeded"
+    done = [(actor, step) for actor, action, step in history(conn) if action == "step.done"]
+    assert done == [("dave", "logs"), ("carol", "dash")]  # spec §13 test 13: who ticked what
 
 
 @pytest.mark.db
@@ -417,6 +429,7 @@ def test_silence_resolves_alert_after_auto_resolve_after(conn, database):
     assert payloads == [{"ids": [10, 13]}]  # one message, ids only
     states = dict(conn.execute("SELECT id, coalesce(resolved_how, state) FROM alerts WHERE id >= 10").fetchall())
     assert states == {10: "silence", 11: "open", 12: "open", 13: "silence"}
+    assert history(conn, 10) == [("scheduler", "alert.resolved", None)]
     assert scheduler.resolve_silent_alerts(conn, T0) == []  # idempotent
 
 

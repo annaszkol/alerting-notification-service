@@ -36,7 +36,13 @@ def resolve_silent_alerts(conn: psycopg.Connection, now: datetime) -> list[int]:
         return []
     with conn.transaction():
         ids = sorted(row[0] for row in conn.execute(SILENCE_SQL, {"now": now}).fetchall())
-        notify_alerts_changed(conn, ids)
+        for alert_id in ids:
+            conn.execute(
+                "INSERT INTO audit_log (actor, action, target_type, target_id, details)"
+                " VALUES ('scheduler', 'alert.resolved', 'alert', %s, '{\"how\": \"silence\"}')",
+                (str(alert_id),),
+            )
+        notify_alerts_changed(conn, ids)  # one message per 350 ids instead of one per alert
     return ids
 
 

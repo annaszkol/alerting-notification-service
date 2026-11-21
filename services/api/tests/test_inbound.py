@@ -128,7 +128,7 @@ def waiting_step(conn, database, executor, title):
     return run_id, code
 
 
-def test_approve_and_reject_by_sms(client, conn, phones, database):
+def test_approve_and_reject_by_sms(client, conn, phones, database, login):
     """Spec §13 test 12 (SMS part): `APPROVE <code>` from the manager's phone; a member's phone is refused."""
     restart = Restart()
     executor = Executor({"restart_service": restart}, hooks=Hooks(approval_requested=request_approval))
@@ -144,6 +144,16 @@ def test_approve_and_reject_by_sms(client, conn, phones, database):
     assert sms(client, MAREK, f"APPROVE {code}") == "unknown_code"  # a code works once
     step = conn.execute("SELECT status, approved_by FROM step_runs WHERE run_id = %s", (run_id,)).fetchone()
     assert (step["status"], step["approved_by"]) == ("pending", "marek")
+
+    # the alert timeline shows the runbook entries written by the executor
+    alert_id = conn.execute("SELECT alert_id FROM runbook_runs WHERE id = %s", (run_id,)).fetchone()["alert_id"]
+    timeline = client.get(f"/api/alerts/{alert_id}/timeline", headers=login("anna")).json()
+    entries = [(e["kind"], e["summary"]) for e in timeline if e["kind"] in ("step", "approval")]
+    assert entries == [
+        ("step", "runbook restart-pricing started by executor (auto)"),
+        ("approval", "approval of restart requested from rates managers"),
+        ("approval", "restart approved by marek via sms"),
+    ]
 
     assert restart.calls == 0
     approved_run = run_id
