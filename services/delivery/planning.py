@@ -7,7 +7,9 @@ Runs inside the processor's batch transaction. It never commits and never sends 
 - channels: a list from the rule as is; a schedule from the rule in the recipient's time zone; `preferences`
   (or omitted) from the person's preferences for the alert severity, else team defaults, else built-in defaults,
 - one notification per (person, channel, first event), even if several route entries or rules hit that person,
-- no throttling yet (feat/throttling): every row is `pending`.
+- throttling per person and channel (limits from preferences, see schedule.DEFAULT_LIMITS): under the limit
+  `pending`; the first time over it one `kind = limit` message and the alert `held`; afterwards `held`.
+  Critical alerts by phone bypass the limit.
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ from contracts.delivery import (
     Severity,
 )
 from services.delivery.directory import Directory, Profile, SqlDirectory
-from services.delivery.schedule import pick_channels, preference_for, zone
+from services.delivery.schedule import DEFAULT_LIMITS, Limit, pick_channels, preference_for, zone
 
 
 def resolve_recipients(
@@ -79,13 +81,30 @@ def plan_targets(
 
 
 INSERT_SQL = """
-INSERT INTO notifications (alert_id, user_id, channel, kind, dedup_key, status, next_attempt_at)
-SELECT %(alert_id)s, t.user_id, t.channel, %(kind)s, %(dedup_key)s, %(status)s, %(now)s
-FROM unnest(%(user_ids)s::text[], %(channels)s::text[]) WITH ORDINALITY AS t(user_id, channel, ord)
-ORDER BY t.ord
+INSERT INTO notifications (alert_id, user_id, channel, kind, dedup_key, status, next_attempt_at, created_at)
+VALUES (%(alert_id)s, %(user_id)s, %(channel)s, %(kind)s, %(dedup_key)s, %(status)s, %(now)s, %(now)s)
 ON CONFLICT (user_id, channel, dedup_key) DO NOTHING
 RETURNING id, user_id, channel, kind, status
 """
+
+# Namespace for advisory locks taken by throttling (two-int form: (LOCK_CLASS, hashtext(user:channel))).
+LOCK_CLASS = 72_110
+
+EXISTS_SQL = "SELECT 1 FROM notifications WHERE user_id = %s AND channel = %s AND dedup_key = %s"
+
+SENT_IN_WINDOW_SQL = """
+SELECT count(*) FROM notifications
+WHERE user_id = %s AND channel = %s AND kind = 'alert' AND status <> 'held' AND created_at > %s
+"""
+
+LIMIT_IN_WINDOW_SQL = """
+SELECT 1 FROM notifications WHERE user_id = %s AND channel = %s AND kind = 'limit' AND created_at > %s LIMIT 1
+"""
+
+
+def bypasses_limit(channel: Channel, severity: Severity) -> bool:
+    """Spec §14 default: critical alerts by phone are never throttled."""
+    return channel is Channel.PHONE and severity is Severity.CRITICAL
 
 
 @dataclass(frozen=True)
@@ -101,22 +120,71 @@ class NotificationPlanner:
         rule: RuleForPlanning,
         now: datetime,
     ) -> PlanResult:
-        targets = plan_targets(conn, self.directory, rule.route, now, Severity(alert.severity), rule.owner.get("team"))
+        severity, owner_team = Severity(alert.severity), rule.owner.get("team")
+        targets = plan_targets(conn, self.directory, rule.route, now, severity, owner_team)
         if not targets:
             return PlanResult()
-        rows = conn.execute(
+        profiles = self.directory.profiles(conn, {user for user, _ in targets}, owner_team)
+        rows: list[tuple[Any, ...]] = []
+        for user, channel in targets:  # sorted: advisory locks are always taken in the same order
+            profile = profiles.get(user)
+            limits = profile.limits if profile else DEFAULT_LIMITS
+            limit = limits.get(channel.value)
+            if limit is None or bypasses_limit(channel, severity):
+                rows += self._insert(conn, alert, user, channel, NotificationKind.ALERT, alert.first_event_id, now)
+            else:
+                rows += self._throttled(conn, alert, user, channel, limit, now)
+        return PlanResult(notifications=_planned(rows))
+
+    def _throttled(
+        self,
+        conn: psycopg.Connection,
+        alert: AlertForPlanning,
+        user: str,
+        channel: Channel,
+        limit: Limit,
+        now: datetime,
+    ) -> list[tuple[Any, ...]]:
+        """Spec §6 step 4. The transaction-scoped advisory lock serialises every planner (in any processor
+        instance) that wants to message this person on this channel, so the count below is exact."""
+        conn.execute("SELECT pg_advisory_xact_lock(%s::int, hashtext(%s))", (LOCK_CLASS, f"{user}:{channel.value}"))
+        if conn.execute(EXISTS_SQL, (user, channel.value, alert.first_event_id)).fetchone():
+            return []  # already planned for this event (another rule, or a replay)
+        since = now - limit.window
+        sent = conn.execute(SENT_IN_WINDOW_SQL, (user, channel.value, since)).fetchone()[0]
+        if sent < limit.max:
+            return self._insert(conn, alert, user, channel, NotificationKind.ALERT, alert.first_event_id, now)
+        rows: list[tuple[Any, ...]] = []
+        if not conn.execute(LIMIT_IN_WINDOW_SQL, (user, channel.value, since)).fetchone():
+            rows += self._insert(conn, alert, user, channel, NotificationKind.LIMIT, f"limit:{now.isoformat()}", now)
+        rows += self._insert(
+            conn, alert, user, channel, NotificationKind.ALERT, alert.first_event_id, now, NotificationStatus.HELD
+        )
+        return rows
+
+    @staticmethod
+    def _insert(
+        conn: psycopg.Connection,
+        alert: AlertForPlanning,
+        user: str,
+        channel: Channel,
+        kind: NotificationKind,
+        dedup_key: str,
+        now: datetime,
+        status: NotificationStatus = NotificationStatus.PENDING,
+    ) -> list[tuple[Any, ...]]:
+        return conn.execute(
             INSERT_SQL,
             {
                 "alert_id": alert.id,
-                "kind": NotificationKind.ALERT.value,
-                "dedup_key": alert.first_event_id,
-                "status": NotificationStatus.PENDING.value,
+                "user_id": user,
+                "channel": channel.value,
+                "kind": kind.value,
+                "dedup_key": dedup_key,
+                "status": status.value,
                 "now": now,
-                "user_ids": [user for user, _ in targets],
-                "channels": [channel.value for _, channel in targets],
             },
         ).fetchall()
-        return PlanResult(notifications=_planned(rows))
 
 
 def _planned(rows: Sequence[tuple[Any, ...]]) -> list[PlannedNotification]:
@@ -128,7 +196,7 @@ def _planned(rows: Sequence[tuple[Any, ...]]) -> list[PlannedNotification]:
             kind=NotificationKind(kind),
             status=NotificationStatus(status),
         )
-        for row_id, user_id, channel, kind, status in sorted(rows, key=lambda r: (r[1], r[2]))
+        for row_id, user_id, channel, kind, status in sorted(rows, key=lambda r: (r[1], r[2], r[3] != "limit"))
     ]
 
 

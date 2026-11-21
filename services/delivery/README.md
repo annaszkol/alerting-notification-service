@@ -21,7 +21,12 @@ Routing (spec §4, §6):
   lower level. A preference value can itself be a schedule (working hours).
 - People and teams come from `users` / `teams` / `team_members` (`directory.py`, `SqlDirectory`); unknown users or
   teams resolve to nobody instead of aborting the processor's batch.
-- Not yet: throttling (`feat/throttling`, limits will be read from `channel_preferences.limits`).
+- Throttling per person and channel (spec §6 step 4): `pg_advisory_xact_lock` on (person, channel), then count
+  that person's non-held alert notifications on that channel created in the window. Under the limit → `pending`;
+  first time over → one `kind = limit` message ("further alerts only in the UI") + the alert `held`; afterwards
+  `held`. Held alerts don't count, so the person is unblocked when the window passes. Critical alerts by phone
+  bypass the limit (spec §14). Limits: built-in (SMS 5 / 10 min, phone 5 / 10 min, email 20 / 10 min, UI none)
+  < team `channel_preferences.limits` < personal limits; `null` removes a limit for a channel.
 
 Processor usage:
 

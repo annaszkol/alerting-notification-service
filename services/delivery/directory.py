@@ -12,7 +12,7 @@ from typing import Any, Protocol
 
 import psycopg
 
-from services.delivery.schedule import DEFAULT_PREFERENCES, Rotation
+from services.delivery.schedule import DEFAULT_PREFERENCES, Limit, Rotation, merge_limits
 
 
 @dataclass(frozen=True)
@@ -20,7 +20,10 @@ class Profile:
     """What routing needs to know about one person."""
 
     timezone: str
-    by_severity: Mapping[str, Any]  # resolved: own preferences, else a team's defaults, else DEFAULT_PREFERENCES
+    # resolved: own preferences, else a team's defaults, else DEFAULT_PREFERENCES
+    by_severity: Mapping[str, Any]
+    # throttling per channel: DEFAULT_LIMITS < that team's limits < own limits
+    limits: Mapping[str, Limit] = field(default_factory=dict)
 
 
 class Directory(Protocol):
@@ -40,21 +43,26 @@ class Directory(Protocol):
         ...
 
 
-def _resolve_preferences(
+def _team_order(user_id: str, teams_of_user: Mapping[str, list[str]], owner_team: str | None) -> list[str]:
+    """Rule owner's team first (if the person is in it), then the person's other teams by id."""
+    teams = teams_of_user.get(user_id, [])
+    return ([owner_team] if owner_team in teams else []) + sorted(t for t in teams if t != owner_team)
+
+
+def _resolve(
     user_id: str,
     own: Mapping[str, Mapping[str, Any]],
-    team_defaults: Mapping[str, Mapping[str, Any]],
+    team_prefs: Mapping[str, Mapping[str, Any]],
+    team_limits: Mapping[str, Mapping[str, Any]],
+    own_limits: Mapping[str, Mapping[str, Any]],
     teams_of_user: Mapping[str, list[str]],
     owner_team: str | None,
-) -> Mapping[str, Any]:
-    if user_id in own:
-        return own[user_id]
-    teams = teams_of_user.get(user_id, [])
-    ordered = ([owner_team] if owner_team in teams else []) + sorted(t for t in teams if t != owner_team)
-    for team in ordered:
-        if team in team_defaults:
-            return team_defaults[team]
-    return DEFAULT_PREFERENCES
+    timezone: str,
+) -> Profile:
+    order = _team_order(user_id, teams_of_user, owner_team)
+    by_severity = own.get(user_id) or next((team_prefs[t] for t in order if t in team_prefs), DEFAULT_PREFERENCES)
+    team_layer = next((team_limits[t] for t in order if t in team_limits), None)
+    return Profile(timezone, by_severity, merge_limits(team_layer, own_limits.get(user_id)))
 
 
 class SqlDirectory:
@@ -100,18 +108,23 @@ class SqlDirectory:
         if not ids:
             return {}
         timezones = dict(conn.execute("SELECT id, timezone FROM users WHERE id = ANY(%s)", (ids,)).fetchall())
-        own = dict(
-            conn.execute(
-                "SELECT owner_id, by_severity FROM channel_preferences"
-                " WHERE owner_type = 'user' AND owner_id = ANY(%s)",
-                (ids,),
-            ).fetchall()
-        )
+        own_prefs: dict[str, Mapping[str, Any]] = {}
+        own_limits: dict[str, Mapping[str, Any]] = {}
+        for user_id, by_severity, limits in conn.execute(
+            "SELECT owner_id, by_severity, limits FROM channel_preferences"
+            " WHERE owner_type = 'user' AND owner_id = ANY(%s)",
+            (ids,),
+        ).fetchall():
+            if by_severity:
+                own_prefs[user_id] = by_severity
+            if limits:
+                own_limits[user_id] = limits
         teams_of_user: dict[str, list[str]] = {}
-        team_defaults: dict[str, Mapping[str, Any]] = {}
-        for user_id, team_id, by_severity in conn.execute(
+        team_prefs: dict[str, Mapping[str, Any]] = {}
+        team_limits: dict[str, Mapping[str, Any]] = {}
+        for user_id, team_id, by_severity, limits in conn.execute(
             """
-            SELECT m.user_id, m.team_id, p.by_severity
+            SELECT m.user_id, m.team_id, p.by_severity, p.limits
             FROM team_members m
             LEFT JOIN channel_preferences p ON p.owner_type = 'team' AND p.owner_id = m.team_id
             WHERE m.user_id = ANY(%s)
@@ -119,12 +132,13 @@ class SqlDirectory:
             (ids,),
         ).fetchall():
             teams_of_user.setdefault(user_id, []).append(team_id)
-            if by_severity is not None:
-                team_defaults[team_id] = by_severity
+            if by_severity:
+                team_prefs[team_id] = by_severity
+            if limits:
+                team_limits[team_id] = limits
         return {
-            user_id: Profile(
-                timezone=timezones[user_id],
-                by_severity=_resolve_preferences(user_id, own, team_defaults, teams_of_user, owner_team),
+            user_id: _resolve(
+                user_id, own_prefs, team_prefs, team_limits, own_limits, teams_of_user, owner_team, timezones[user_id]
             )
             for user_id in ids
             if user_id in timezones
@@ -141,6 +155,8 @@ class StaticDirectory:
     timezones: Mapping[str, str] = field(default_factory=dict)
     user_preferences: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     team_preferences: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    user_limits: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    team_limits: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
     def _users(self) -> set[str]:
         return set(self.extra_users).union(*(members.keys() for members in self.teams.values()))
@@ -165,11 +181,15 @@ class StaticDirectory:
             for user in members:
                 teams_of_user.setdefault(user, []).append(team)
         return {
-            user: Profile(
-                timezone=self.timezones.get(user, "UTC"),
-                by_severity=_resolve_preferences(
-                    user, self.user_preferences, self.team_preferences, teams_of_user, owner_team
-                ),
+            user: _resolve(
+                user,
+                {u: p for u, p in self.user_preferences.items() if p},
+                {t: p for t, p in self.team_preferences.items() if p},
+                {t: x for t, x in self.team_limits.items() if x},
+                {u: x for u, x in self.user_limits.items() if x},
+                teams_of_user,
+                owner_team,
+                self.timezones.get(user, "UTC"),
             )
             for user in sorted(set(user_ids) & self._users())
         }
