@@ -23,6 +23,8 @@ from typing import Any
 
 import psycopg
 
+from libs import metrics
+
 log = logging.getLogger("tailer")
 MAX_LINE = 64 * 1024
 READ_CHUNK = 1024 * 1024
@@ -101,6 +103,7 @@ def tail_once(conn: psycopg.Connection, producer: Any, source: LogSource, topic:
     ]
     for future in futures:
         future.get(timeout=10)
+    metrics.INGEST_ACCEPTED.labels("logfile").inc(len(futures))
     if lines or new_offset != offset:
         save_offset(conn, source, inode, new_offset)
     return len(lines)
@@ -118,6 +121,7 @@ def main() -> None:
     topic = os.environ.get("EVENTS_RAW_TOPIC", "events.raw")
     brokers = os.environ.get("KAFKA_BROKERS", "localhost:19092").split(",")
     producer = KafkaProducer(bootstrap_servers=brokers, acks="all")
+    metrics.serve("tailer")
     with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
         while not stop.is_set() and conn.execute("SELECT to_regclass('tailer_offsets')").fetchone()[0] is None:
             stop.wait(10)

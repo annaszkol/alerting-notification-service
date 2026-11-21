@@ -28,7 +28,10 @@ from typing import Any, Protocol
 
 import psycopg
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+from libs import metrics
 
 log = logging.getLogger("ingest")
 
@@ -85,6 +88,7 @@ def _token(request: Request) -> str | None:
 
 
 def _error(status: int, code: str, message: str) -> JSONResponse:
+    metrics.INGEST_REJECTED.labels(code).inc()
     return JSONResponse({"error": {"code": code, "message": message, "details": None}}, status_code=status)
 
 
@@ -110,6 +114,10 @@ def create_app(
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok", "service": "ingest"}
+
+    @app.get("/metrics", include_in_schema=False)
+    def metrics_endpoint() -> Response:
+        return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     @app.post("/ingest/{source_id}", status_code=202)
     async def ingest(source_id: str, request: Request):
@@ -156,6 +164,7 @@ def create_app(
         except Exception as exc:  # noqa: BLE001 - any broker error: the sender retries
             log.warning("kafka write failed: %s", exc)
             return _error(503, "unavailable", "event broker unavailable, retry later")
+        metrics.INGEST_ACCEPTED.labels("http").inc()
         return {"eventId": envelope["eventId"]}
 
     return app

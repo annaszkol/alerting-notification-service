@@ -14,11 +14,13 @@ import time
 
 import psycopg
 
-from services.delivery.worker import BATCH_SIZE, DeliveryWorker
+from libs import metrics
+from services.delivery.worker import BATCH_SIZE, DeliveryWorker, refresh_queue
 
 log = logging.getLogger("delivery")
 
 CHANNEL_RELOAD_SECONDS = 30
+QUEUE_METRIC_SECONDS = 5
 
 
 async def run(stop: asyncio.Event) -> None:
@@ -33,11 +35,15 @@ async def run(stop: asyncio.Event) -> None:
                 worker = DeliveryWorker(conn, base_url, batch_size=batch)
                 await worker.load_adapters()
                 loaded_at = time.monotonic()
+                queue_at = 0.0
                 log.info("delivery worker started, channels: %s", sorted(worker.adapters))
                 while not stop.is_set():
                     if time.monotonic() - loaded_at > CHANNEL_RELOAD_SECONDS:
                         await worker.load_adapters()
                         loaded_at = time.monotonic()
+                    if time.monotonic() - queue_at >= QUEUE_METRIC_SECONDS:
+                        await refresh_queue(conn)
+                        queue_at = time.monotonic()
                     if await worker.run_once() < batch:
                         await _sleep(stop, poll)
         except (psycopg.Error, OSError) as exc:
@@ -56,6 +62,8 @@ def main() -> None:
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "INFO"), format="%(asctime)s %(name)s %(levelname)s %(message)s"
     )
+
+    metrics.serve("delivery")
 
     async def runner() -> None:
         stop = asyncio.Event()

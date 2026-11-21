@@ -57,6 +57,26 @@ REST API under `/api` (contract: [`contracts/openapi.yaml`](contracts/openapi.ya
 [`services/api/README.md`](services/api/README.md)). **Login is a mock:** pick any seeded user, no password
 (`POST /api/auth/login {"userId": "anna"}` returns a JWT). Set `JWT_SECRET` outside local demos.
 
+## Metrics
+
+Prometheus text format (spec §10 point 3; definitions in [`libs/metrics.py`](libs/metrics.py)). The ingest app serves
+`GET /metrics` on its own port (`http://localhost:8080/metrics`); worker processes serve `/metrics` on `METRICS_PORT`:
+processor 9101, delivery 9102, executor 9103, tailer 9104, kafka-adapter 9105. These ports are not published by
+compose (scaled instances would clash); read them inside the network, e.g.
+`docker compose -f deploy/docker-compose.yml exec processor python -c "import urllib.request as u; print(u.urlopen('http://localhost:9101/metrics').read().decode())"`.
+
+| Metric | Meaning |
+| --- | --- |
+| `ingest_events_accepted_total{adapter}` | events acknowledged by Kafka in `events.raw` (`http`, `logfile`, `kafka`) |
+| `ingest_events_rejected_total{reason}` | refused HTTP requests (`unauthorized`, `too_large`, `invalid`, `unavailable`) |
+| `processor_events_total{result}` | events processed (`new`, `duplicate`); events/s = `rate(...[1m])` |
+| `processor_letters_total{mapped}`, `processor_alerts_total{change}` | letters after mapping, alerts created / updated / resolved |
+| `processor_batch_seconds` | histogram of one batch (transaction + offset commit) |
+| `processor_consumer_lag{partition}` | messages behind the end of `events.raw`, refreshed every 5 s |
+| `delivery_attempts_total{channel,outcome}` | send attempts: `sent`, `pending` (will retry), `dead` |
+| `notifications_queue{status}` | notifications per status, counted in Postgres every 5 s |
+| `executor_steps_total{outcome}` | runbook step runs: `succeeded`, `waiting`, `skipped`, ... |
+
 ## Database migrations
 
 - Files: `db/migrations/<YYYYMMDDHHMM>_<name>.sql` (lowercase name, `_` only). Each owner adds migrations for their own tables.

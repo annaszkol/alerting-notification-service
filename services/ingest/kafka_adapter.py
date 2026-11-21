@@ -18,6 +18,8 @@ from typing import Any
 
 import psycopg
 
+from libs import metrics
+
 log = logging.getLogger("kafka-adapter")
 
 
@@ -49,6 +51,7 @@ def forward(records: Iterable[Any], topic_to_source: Mapping[str, str], producer
         futures.append(producer.send(topic, key=e["eventId"].encode(), value=json.dumps(e).encode()))
     for future in futures:
         future.get(timeout=10)
+    metrics.INGEST_ACCEPTED.labels("kafka").inc(len(futures))
     return len(futures)
 
 
@@ -71,6 +74,7 @@ def main() -> None:
     brokers = os.environ.get("KAFKA_BROKERS", "localhost:19092").split(",")
     out_topic = os.environ.get("EVENTS_RAW_TOPIC", "events.raw")
     producer = KafkaProducer(bootstrap_servers=brokers, acks="all")
+    metrics.serve("kafka_adapter")
     with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
         topics: dict[str, str] = {}
         while not stop.is_set() and not topics:

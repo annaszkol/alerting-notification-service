@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 
 import psycopg
 
+from libs import metrics
 from services.executor import scheduler
 from services.executor.actions.builtin import ActionSettings, build_registry
 from services.executor.approvals import request_approval
@@ -50,6 +51,7 @@ async def run(stop: asyncio.Event) -> None:
                     rows = executor.claim(conn, datetime.now(UTC))
                     for row in rows:
                         outcome = await executor.process(conn, row, datetime.now(UTC))
+                        metrics.EXECUTOR_STEPS.labels(outcome.split(" ")[0]).inc()
                         log.info("step run %s (%s/%s): %s", row["id"], row["run_id"], row["step_id"], outcome)
                     if not rows:
                         await _sleep(stop, poll)
@@ -69,6 +71,8 @@ def main() -> None:
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "INFO"), format="%(asctime)s %(name)s %(levelname)s %(message)s"
     )
+
+    metrics.serve("executor")
 
     async def runner() -> None:
         stop = asyncio.Event()
