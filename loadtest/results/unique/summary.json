@@ -1,0 +1,21 @@
+{
+  "name": "unique",
+  "run": "60c51071",
+  "via": "http",
+  "targetRate": 100.0,
+  "dup": 1,
+  "events": 6000,
+  "accepted": 6000,
+  "rejected": 0,
+  "sendSeconds": 67.06,
+  "achievedRate": 89.5,
+  "expectedAlerts": 6000,
+  "deliveredAlerts": 6000,
+  "latencyMs": {
+    "p50": 23821,
+    "p95": 38509,
+    "p99": 42289,
+    "max": 46096
+  },
+  "faults": []
+}

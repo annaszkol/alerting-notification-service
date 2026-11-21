@@ -1,0 +1,30 @@
+{
+  "name": "outage",
+  "run": "30202675",
+  "via": "http",
+  "targetRate": 100.0,
+  "dup": 1,
+  "events": 6000,
+  "accepted": 5998,
+  "rejected": 2,
+  "sendSeconds": 60.81,
+  "achievedRate": 98.6,
+  "expectedAlerts": 5998,
+  "deliveredAlerts": 5998,
+  "latencyMs": {
+    "p50": 34682,
+    "p95": 54936,
+    "p99": 63416,
+    "max": 69762
+  },
+  "faults": [
+    [
+      "15",
+      "curl -fsS -X POST localhost:8090/api/outage -H 'Content-Type: application/json' -d '{\"sms\": true}'"
+    ],
+    [
+      "35",
+      "curl -fsS -X POST localhost:8090/api/outage -H 'Content-Type: application/json' -d '{\"sms\": false}'"
+    ]
+  ]
+}

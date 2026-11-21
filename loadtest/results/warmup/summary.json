@@ -1,0 +1,21 @@
+{
+  "name": "warmup",
+  "run": "82255be5",
+  "via": "http",
+  "targetRate": 20.0,
+  "dup": 1,
+  "events": 100,
+  "accepted": 100,
+  "rejected": 0,
+  "sendSeconds": 4.96,
+  "achievedRate": 20.1,
+  "expectedAlerts": 100,
+  "deliveredAlerts": 100,
+  "latencyMs": {
+    "p50": 442,
+    "p95": 779,
+    "p99": 829,
+    "max": 839
+  },
+  "faults": []
+}

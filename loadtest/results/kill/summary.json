@@ -1,0 +1,34 @@
+{
+  "name": "kill",
+  "run": "3054bbff",
+  "via": "http",
+  "targetRate": 100.0,
+  "dup": 1,
+  "events": 6000,
+  "accepted": 5996,
+  "rejected": 4,
+  "sendSeconds": 70.09,
+  "achievedRate": 85.6,
+  "expectedAlerts": 5996,
+  "deliveredAlerts": 5996,
+  "latencyMs": {
+    "p50": 37637,
+    "p95": 103190,
+    "p99": 114297,
+    "max": 118903
+  },
+  "faults": [
+    [
+      "20",
+      "docker kill $(docker compose -f deploy/docker-compose.yml ps -q processor | head -1)"
+    ],
+    [
+      "22",
+      "docker kill $(docker compose -f deploy/docker-compose.yml ps -q delivery | head -1)"
+    ],
+    [
+      "40",
+      "docker compose -f deploy/docker-compose.yml up -d --scale processor=2 --scale delivery=2 processor delivery"
+    ]
+  ]
+}

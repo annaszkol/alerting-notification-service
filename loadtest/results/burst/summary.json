@@ -1,0 +1,21 @@
+{
+  "name": "burst",
+  "run": "8fd2d9ff",
+  "via": "http",
+  "targetRate": 500.0,
+  "dup": 20,
+  "events": 10000,
+  "accepted": 9999,
+  "rejected": 1,
+  "sendSeconds": 77.54,
+  "achievedRate": 128.9,
+  "expectedAlerts": 500,
+  "deliveredAlerts": 500,
+  "latencyMs": {
+    "p50": 561,
+    "p95": 929,
+    "p99": 1058,
+    "max": 1173
+  },
+  "faults": []
+}

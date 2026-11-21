@@ -1,0 +1,34 @@
+name: Load test
+
+# Spec §10: measured numbers. Runs the scenarios on a GitHub-hosted runner and uploads the raw results.
+on:
+  workflow_dispatch:
+    inputs:
+      rate: { description: "events/s for the latency scenarios", default: "100" }
+      scenarios: { description: "space-separated scenarios", default: "unique burst outage kill scale" }
+  push:
+    branches-ignore: [main]
+    paths: ["loadtest/*.py", "loadtest/*.sh", ".github/workflows/loadtest.yml"]  # not on results / README
+
+jobs:
+  loadtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - run: uv sync --frozen
+      - run: docker compose -f deploy/docker-compose.yml up -d --build
+      - run: deploy/smoke-test.sh
+      - run: RATE=${{ inputs.rate || '100' }} loadtest/scenarios.sh ${{ inputs.scenarios || '' }}
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loadtest-results
+          path: loadtest/results/
+      - if: failure()
+        run: docker compose -f deploy/docker-compose.yml logs --no-color --tail 200 processor delivery ingest
+      - if: always()
+        run: docker compose -f deploy/docker-compose.yml down -v
