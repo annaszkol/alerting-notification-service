@@ -7,6 +7,7 @@ import type { Me } from "../api/types";
 import seed from "../test-fixtures/seed-api.json";
 import { renderWith, stubApi } from "../test-utils";
 import { Admin } from "./Admin";
+import { ConnectSource } from "./ConnectSource";
 import { MappingEditor } from "./MappingEditor";
 import { Mappings } from "./Mappings";
 import { Oncall } from "./Oncall";
@@ -15,6 +16,7 @@ import { RuleEditor } from "./RuleEditor";
 import { RunbookEditor } from "./RunbookEditor";
 import { RunbookImport } from "./RunbookImport";
 import { Runbooks } from "./Runbooks";
+import { Sources } from "./Sources";
 import { Suggestions } from "./Suggestions";
 import { Unmapped } from "./Unmapped";
 
@@ -140,6 +142,33 @@ describe("manager (erin, payments)", () => {
 });
 
 describe("admin", () => {
+  it("sources: unreadable events are shown on their source with a way to teach the format", async () => {
+    api("admin");
+    at("/sources", "/sources", <Sources />);
+    expect(await screen.findByRole("button", { name: "Teach the format" })).toBeInTheDocument();
+    expect(screen.getByText(/events the system can't read yet/)).toHaveTextContent("3 events");
+    expect(screen.getByRole("button", { name: "Connect a source" })).toBeInTheDocument();
+  });
+
+  it("connect a source: the wizard starts by naming the source", async () => {
+    api("admin");
+    at("/sources/new", "/sources/new", <ConnectSource />);
+    expect(await screen.findByLabelText("Name")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create source" })).toBeDisabled();
+  });
+
+  it("connect a source: an unreadable event opens the meaning step with a live preview", async () => {
+    api("admin");
+    renderWith(
+      <Routes>
+        <Route path="/sources/:id/connect" element={<ConnectSource />} />
+      </Routes>,
+      { pathname: "/sources/http-default/connect", state: { sample: UNMAPPED.sample } },
+    );
+    expect(await screen.findByText("Which field names the service or system?")).toBeInTheDocument();
+    expect(await screen.findByText("billing", { selector: "p" })).toBeInTheDocument();
+  });
+
   it("unmapped, mappings and the mapping editor", async () => {
     api("admin");
     at("/unmapped", "/unmapped", <Unmapped />);

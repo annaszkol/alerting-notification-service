@@ -7,7 +7,7 @@ import { MemoryRouter } from "react-router-dom";
 
 import type { Me } from "./api/types";
 
-export function renderWith(ui: ReactNode, path = "/") {
+export function renderWith(ui: ReactNode, path: string | { pathname: string; state?: unknown } = "/") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <MantineProvider>
