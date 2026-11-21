@@ -194,9 +194,7 @@ def test_sms_text_collapses_whitespace_and_works_without_code():
 
 
 def test_phone_text():
-    assert phone_text("critical", "Settlement failed") == (
-        "Critical alert. Settlement failed. Press 1 to acknowledge."
-    )
+    assert phone_text("critical", "Settlement failed") == ("Critical alert. Settlement failed. Press 1 to acknowledge.")
 
 
 # --- channels table ------------------------------------------------------------------------------------

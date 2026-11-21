@@ -127,9 +127,7 @@ class Gateway:
             self.by_key.clear()
 
 
-def create_app(
-    inbound_url: str = INBOUND_SMS_URL, transport: httpx.AsyncBaseTransport | None = None
-) -> FastAPI:
+def create_app(inbound_url: str = INBOUND_SMS_URL, transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
     app = FastAPI(title="fake-gateway")
     gateway = Gateway()
     app.state.gateway = gateway

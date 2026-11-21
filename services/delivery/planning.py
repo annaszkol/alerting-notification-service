@@ -2,10 +2,10 @@
 
 Runs inside the processor's batch transaction. It never commits and never sends anything.
 
-Scope of this version (feat/notifications-outbox):
-- recipients: `user`, `team`, `{team, role}`; `oncall` resolves to every team member until rotations land
-  (feat/preferences-oncall); unknown users and teams resolve to nobody,
-- channels: an explicit list from the rule; `schedule` and `preferences` fall back to `ui` (stub),
+- recipients: `user`, `team`, `{team, role}`, `oncall` (person on duty now; whole team if no rotation);
+  unknown users and teams resolve to nobody,
+- channels: a list from the rule as is; a schedule from the rule in the recipient's time zone; `preferences`
+  (or omitted) from the person's preferences for the alert severity, else team defaults, else built-in defaults,
 - one notification per (person, channel, first event), even if several route entries or rules hit that person,
 - no throttling yet (feat/throttling): every row is `pending`.
 """
@@ -27,10 +27,10 @@ from contracts.delivery import (
     PlannedNotification,
     PlanResult,
     RuleForPlanning,
+    Severity,
 )
-from services.delivery.directory import Directory, SqlDirectory
-
-STUB_CHANNELS: tuple[Channel, ...] = (Channel.UI,)
+from services.delivery.directory import Directory, Profile, SqlDirectory
+from services.delivery.schedule import pick_channels, preference_for, zone
 
 
 def resolve_recipients(
@@ -45,22 +45,36 @@ def resolve_recipients(
     raise ValueError(f"unknown recipient {dict(to)!r}")
 
 
-def resolve_channels(channels: Any) -> tuple[Channel, ...]:
-    if isinstance(channels, list):
-        return tuple(Channel(c) for c in channels)
-    # "preferences", omitted, or a schedule: real resolution lands in feat/preferences-oncall.
-    return STUB_CHANNELS
+def channels_for(spec: Any, profile: Profile | None, severity: Severity, now: datetime) -> list[Channel]:
+    """Channels for one person. A channel list or schedule from the rule wins over the person's preferences."""
+    if isinstance(spec, list):
+        return [Channel(c) for c in spec]
+    if profile is None:  # unknown user; existing_users already filtered them, so this is defensive
+        return []
+    local = now.astimezone(zone(profile.timezone))
+    if isinstance(spec, Mapping):  # schedule from the rule
+        return pick_channels(spec, local)
+    return pick_channels(preference_for(profile.by_severity, severity), local)
 
 
 def plan_targets(
-    conn: psycopg.Connection, directory: Directory, route: Iterable[Mapping[str, Any]], now: datetime
+    conn: psycopg.Connection,
+    directory: Directory,
+    route: Iterable[Mapping[str, Any]],
+    now: datetime,
+    severity: Severity = Severity.CRITICAL,
+    owner_team: str | None = None,
 ) -> list[tuple[str, Channel]]:
     """Unique (user, channel) pairs for a route, sorted so that row locks are taken in a fixed order."""
+    entries = [
+        (resolve_recipients(conn, directory, entry["to"], now), entry.get("channels", "preferences")) for entry in route
+    ]
+    need_profile = {user for users, spec in entries if not isinstance(spec, list) for user in users}
+    profiles = directory.profiles(conn, need_profile, owner_team) if need_profile else {}
     targets: set[tuple[str, Channel]] = set()
-    for entry in route:
-        users = resolve_recipients(conn, directory, entry["to"], now)
-        channels = resolve_channels(entry.get("channels", "preferences"))
-        targets.update((user, channel) for user in users for channel in channels)
+    for users, spec in entries:
+        for user in users:
+            targets.update((user, channel) for channel in channels_for(spec, profiles.get(user), severity, now))
     return sorted(targets)
 
 
@@ -87,7 +101,7 @@ class NotificationPlanner:
         rule: RuleForPlanning,
         now: datetime,
     ) -> PlanResult:
-        targets = plan_targets(conn, self.directory, rule.route, now)
+        targets = plan_targets(conn, self.directory, rule.route, now, Severity(alert.severity), rule.owner.get("team"))
         if not targets:
             return PlanResult()
         rows = conn.execute(

@@ -31,9 +31,7 @@ PLAN = NotificationPlanner(DIRECTORY)  # in-memory, for tests without a database
 
 
 def alert(alert_id: int = 1, first_event_id: str = "evt-1") -> AlertForPlanning:
-    return AlertForPlanning(
-        id=alert_id, rule_id="r", severity=Severity.CRITICAL, first_event_id=first_event_id
-    )
+    return AlertForPlanning(id=alert_id, rule_id="r", severity=Severity.CRITICAL, first_event_id=first_event_id)
 
 
 def rule(route, rule_id: str = "r") -> RuleForPlanning:
@@ -55,15 +53,16 @@ def test_planner_matches_contract():
         ([{"to": {"user": "anna"}, "channels": ["sms", "email"]}], [("anna", "email"), ("anna", "sms")]),
         ([{"to": {"team": "rates"}, "channels": ["email"]}], [("anna", "email"), ("bob", "email")]),
         ([{"to": {"team": "rates", "role": "manager"}, "channels": ["sms"]}], [("bob", "sms")]),
-        # stub: on-call = whole team
+        # no rotation for settlements in DIRECTORY: on-call falls back to the whole team
         ([{"to": {"oncall": "settlements"}, "channels": ["phone"]}], [("carol", "phone"), ("dave", "phone")]),
-        # stub: preferences / omitted / schedule -> ui
-        ([{"to": {"user": "anna"}, "channels": "preferences"}], [("anna", "ui")]),
-        ([{"to": {"user": "anna"}}], [("anna", "ui")]),
+        # no preferences anywhere: built-in defaults, critical -> sms + email
+        ([{"to": {"user": "anna"}, "channels": "preferences"}], [("anna", "email"), ("anna", "sms")]),
+        ([{"to": {"user": "anna"}}], [("anna", "email"), ("anna", "sms")]),
+        # schedule from the rule; NOW is 12:00 UTC and anna's zone defaults to UTC
         (
             [{"to": {"user": "anna"}, "channels": {"schedule": [{"between": "08:00-20:00", "use": ["sms"]}],
                                                    "otherwise": ["email"]}}],
-            [("anna", "ui")],
+            [("anna", "sms")],
         ),
         ([{"to": {"team": "unknown"}, "channels": ["sms"]}], []),
     ],
@@ -214,6 +213,5 @@ def test_unknown_user_or_team_does_not_abort_the_transaction(conn):
 def test_notification_requires_existing_user(conn):
     with pytest.raises(psycopg.errors.ForeignKeyViolation):
         conn.execute(
-            "INSERT INTO notifications (alert_id, user_id, channel, dedup_key)"
-            " VALUES (1, 'ghost', 'sms', 'e')"
+            "INSERT INTO notifications (alert_id, user_id, channel, dedup_key) VALUES (1, 'ghost', 'sms', 'e')"
         )
