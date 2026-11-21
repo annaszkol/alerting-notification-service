@@ -20,11 +20,13 @@ from services.executor.approvals import (
     CODE_ALPHABET,
     CODE_LENGTH,
     decide,
+    decide_approval,
     decide_by_code,
+    decide_by_token,
     new_code,
     request_approval,
-    sign_link,
-    verify_link,
+    sign_approval_token,
+    verify_approval_token,
 )
 from services.executor.engine import RETRY_DELAY, Executor, Hooks
 
@@ -52,18 +54,18 @@ def test_codes_use_the_unambiguous_alphabet():
     assert len(codes) > 190
 
 
-def test_signed_links():
-    token = sign_link(42, "approved", T0, SECRET)
-    assert verify_link(token, T0 + timedelta(hours=23), SECRET) == (42, "approved")
-    assert verify_link(token, T0 + timedelta(hours=25), SECRET) is None  # expired
-    assert verify_link(token, T0, b"other-secret") is None
-    body, mac = token.split(".")
-    forged = json.dumps({"a": 43, "d": "approved", "exp": 9_999_999_999}).encode()
+def test_signed_tokens():
+    token = sign_approval_token(42, "carol", T0, SECRET)
+    assert verify_approval_token(token, T0 + timedelta(hours=23), SECRET) == (42, "carol")
+    assert verify_approval_token(token, T0 + timedelta(hours=25), SECRET) is None  # expired
+    assert verify_approval_token(token, T0, b"other-secret") is None
+    _, mac = token.split(".")
     import base64
 
+    forged = json.dumps({"a": 43, "u": "carol", "exp": 9_999_999_999}).encode()
     forged_body = base64.urlsafe_b64encode(forged).rstrip(b"=").decode()
-    assert verify_link(f"{forged_body}.{mac}", T0, SECRET) is None  # changed approval id
-    assert verify_link("garbage", T0, SECRET) is None
+    assert verify_approval_token(f"{forged_body}.{mac}", T0, SECRET) is None  # changed approval id
+    assert verify_approval_token("garbage", T0, SECRET) is None
 
 
 # --- HTTP actions (against the mock app, in process) ---------------------------------------------------
@@ -164,13 +166,13 @@ def test_approval_sms_keeps_the_code_within_160(monkeypatch):
     assert text.startswith("APPROVE K7Q2MX or REJECT K7Q2MX: ")
 
 
-def test_approval_email_has_signed_links(monkeypatch):
+def test_approval_email_has_a_signed_link_for_its_addressee(monkeypatch):
     monkeypatch.setenv("APPROVAL_LINK_SECRET", "s3cret")
     row = Claimed(1, 7, "carol", Channel.EMAIL, NotificationKind.APPROVAL, "approval:5", 0, "K7Q2MX")
     message = render(row, CAROL, {**ALERT_ROW, "title": "Escalate wf-42"}, "http://ui.test")
-    token = message.links["approve"].rsplit("/", 1)[1]
-    assert verify_link(token, datetime.now(UTC), b"s3cret") == (5, "approved")
-    assert message.links["reject"] in message.text
+    token = message.links["approval"].rsplit("/", 1)[1]
+    assert verify_approval_token(token, datetime.now(UTC), b"s3cret") == (5, "carol")
+    assert message.links["approval"] in message.text
     assert "APPROVE K7Q2MX" in message.text
 
 
@@ -368,6 +370,32 @@ def test_ui_decision_checks_role_and_is_final(conn, database, targets):
         assert decide(conn, approval_id, "rejected", "carol", "email", T0).result == "rejected"
     assert decide(conn, approval_id, "approved", "carol", "ui", T0).result == "already_decided"  # links work once
     assert approval(conn, run_id)["via"] == "email"
+
+
+@pytest.mark.db
+def test_email_token_and_agreed_api_names(conn, database, targets, monkeypatch):
+    """Agreements 4 and 5 (docs/plans/c-api-web.md): decide_approval with API wording, decide_by_token."""
+    monkeypatch.setenv("APPROVAL_LINK_SECRET", "s3cret")
+    set_fail(targets, "workflow", -1)
+    executor = executor_for(database, targets)
+    first = waiting_for_approval(executor, conn, targets, alert_id=1)
+    second = waiting_for_approval(executor, conn, targets, alert_id=2)
+    first_id, second_id = approval(conn, first)["id"], approval(conn, second)["id"]
+
+    dave_token = sign_approval_token(first_id, "dave", T0)  # emailed to someone without the role
+    assert decide_by_token(conn, dave_token, "approve", T0).result == "not_allowed"
+    assert decide_by_token(conn, "garbage", "approve", T0).result == "invalid_token"
+    with conn.transaction():
+        assert decide_by_token(conn, sign_approval_token(first_id, "carol", T0), "reject", T0).result == "rejected"
+    assert decide_by_token(conn, sign_approval_token(first_id, "carol", T0), "approve", T0).result == (
+        "already_decided"
+    )  # single use
+    assert approval(conn, first)["via"] == "email"
+
+    with conn.transaction():
+        assert decide_approval(conn, second_id, "carol", "approve", "ui", T0).result == "approved"
+    with pytest.raises(ValueError):
+        decide_approval(conn, second_id, "carol", "maybe", "ui", T0)
 
 
 @pytest.mark.db

@@ -164,10 +164,10 @@ def render(row: Claimed, user: Mapping[str, Any], alert: Mapping[str, Any], base
         codes = f"APPROVE {row.reply_code} or REJECT {row.reply_code}: " if row.reply_code else ""
         text = f"{codes}approval requested: {title} {alert_url}"
         if row.channel is Channel.EMAIL:
-            links.update(approval_links(row.dedup_key, base_url))
+            links.update(approval_links(row.dedup_key, row.user_id, base_url))
             lines = [f"Approval requested: {title}", "", body] if body else [f"Approval requested: {title}"]
-            if "approve" in links:
-                lines += ["", f"Approve: {links['approve']}", f"Reject: {links['reject']}"]
+            if "approval" in links:
+                lines += ["", f"Approve or reject: {links['approval']}"]
             if row.reply_code:
                 lines += ["", f"Or reply by SMS: APPROVE {row.reply_code} / REJECT {row.reply_code}"]
             text = "\n".join([*lines, "", f"Alert: {alert_url}"])
@@ -197,17 +197,14 @@ def render(row: Claimed, user: Mapping[str, Any], alert: Mapping[str, Any], base
     )
 
 
-def approval_links(dedup_key: str, base_url: str) -> dict[str, str]:
-    """Signed, expiring "approve" / "reject" links for an approval request (spec §6). Empty without a secret."""
+def approval_links(dedup_key: str, user_id: str, base_url: str) -> dict[str, str]:
+    """Signed, expiring link to the approve / reject page for this person (spec §6). Empty without a secret."""
     if not dedup_key.startswith("approval:") or not os.environ.get("APPROVAL_LINK_SECRET"):
         return {}
-    from services.executor.approvals import sign_link
+    from services.executor.approvals import sign_approval_token
 
-    approval_id, now = int(dedup_key.split(":", 1)[1]), datetime.now(UTC)
-    return {
-        "approve": f"{base_url}/approvals/{sign_link(approval_id, 'approved', now)}",
-        "reject": f"{base_url}/approvals/{sign_link(approval_id, 'rejected', now)}",
-    }
+    token = sign_approval_token(int(dedup_key.split(":", 1)[1]), user_id, datetime.now(UTC))
+    return {"approval": f"{base_url}/approvals/{token}"}
 
 
 class DeliveryWorker:

@@ -439,19 +439,21 @@ def test_jobs_skip_missing_tables():
             assert scheduler.run_jobs(c, T0) == {"silence": 0, "processed_events": 0}
 
 
-def test_notify_payload_is_chunked():
-    from services.executor.alerts import NOTIFY_CHUNK, notify_alerts_changed
+def test_notify_payload_uses_the_contract_split():
+    from contracts.notify import MAX_IDS_PER_MESSAGE
+    from services.executor.alerts import notify_alerts_changed
 
     class Recorder:
         def __init__(self):
             self.payloads = []
 
         def execute(self, sql, params):
-            self.payloads.append(json.loads(params[0]))
+            self.payloads.append(params[-1])
 
     conn = Recorder()
-    notify_alerts_changed(conn, list(range(NOTIFY_CHUNK * 2 + 1)))
-    assert [len(p["ids"]) for p in conn.payloads] == [NOTIFY_CHUNK, NOTIFY_CHUNK, 1]
-    assert all(len(json.dumps(p)) < 8000 for p in conn.payloads)
+    big = [10**18 + i for i in range(MAX_IDS_PER_MESSAGE * 2 + 1)]  # 19-digit ids
+    notify_alerts_changed(conn, big)
+    assert [len(json.loads(p)["ids"]) for p in conn.payloads] == [MAX_IDS_PER_MESSAGE, MAX_IDS_PER_MESSAGE, 1]
+    assert all(len(p.encode()) < 8000 for p in conn.payloads)  # Postgres NOTIFY limit
     notify_alerts_changed(conn, [])
     assert len(conn.payloads) == 3  # nothing changed -> no message
