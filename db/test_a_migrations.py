@@ -7,6 +7,8 @@ on. Every test runs against a throwaway database with all repo migrations applie
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import psycopg
 import pytest
 
@@ -27,13 +29,24 @@ def database():
 
 _INSERT_ALERT = """
     INSERT INTO alerts (
-        fingerprint, rule_id, team_id, state, title, body, first_event_id, count
-    ) VALUES (%s, 'r1', 't1', %s, 'title', 'body', 'e1', 1)
+        fingerprint, rule_id, team_id, state, title, body, first_event_id, count,
+        resolved_at, resolved_how
+    ) VALUES (%s, 'r1', 't1', %s, 'title', 'body', 'e1', 1, %s, %s)
 """
 
 
 def _insert_alert(conn, fingerprint: str, state: str) -> None:
-    conn.execute(_INSERT_ALERT, (fingerprint, state))
+    """Insert an alert row honoring the resolved <-> resolved_at CHECK constraint."""
+    is_resolved = state == "resolved"
+    conn.execute(
+        _INSERT_ALERT,
+        (
+            fingerprint,
+            state,
+            datetime.now(UTC) if is_resolved else None,
+            "manual" if is_resolved else None,
+        ),
+    )
 
 
 def _version(conn) -> int:
@@ -147,10 +160,7 @@ def test_config_version_is_statement_level(database):
     """One bulk INSERT bumps the version once, not once per row."""
     with psycopg.connect(database) as conn:
         v0 = _version(conn)
-        conn.execute(
-            "INSERT INTO sources (id, kind) VALUES "
-            "('s1', 'http'), ('s2', 'http'), ('s3', 'http')"
-        )
+        conn.execute("INSERT INTO sources (id, kind) VALUES ('s1', 'http'), ('s2', 'http'), ('s3', 'http')")
         assert _version(conn) == v0 + 1
 
 
@@ -162,8 +172,7 @@ def test_tailer_offsets_requires_source(database):
     with psycopg.connect(database) as conn:
         with pytest.raises(psycopg.errors.ForeignKeyViolation):
             conn.execute(
-                "INSERT INTO tailer_offsets (source_id, path, offset) "
-                "VALUES ('missing', '/var/log/x.log', 0)"
+                "INSERT INTO tailer_offsets (source_id, path, byte_offset) VALUES ('missing', '/var/log/x.log', 0)"
             )
 
 
@@ -172,8 +181,7 @@ def test_tailer_offsets_cascades_on_source_delete(database):
     with psycopg.connect(database) as conn:
         conn.execute("INSERT INTO sources (id, kind) VALUES ('src1', 'tailer')")
         conn.execute(
-            "INSERT INTO tailer_offsets (source_id, path, offset) "
-            "VALUES ('src1', '/var/log/x.log', 42)"
+            "INSERT INTO tailer_offsets (source_id, path, byte_offset) VALUES ('src1', '/var/log/x.log', 42)"
         )
         conn.commit()
         conn.execute("DELETE FROM sources WHERE id = 'src1'")
@@ -189,7 +197,6 @@ def test_alerts_open_index_exists(database):
     """The partial unique index must exist, or the processor's dedup is not enforced."""
     with psycopg.connect(database) as conn:
         exists = conn.execute(
-            "SELECT 1 FROM pg_indexes "
-            "WHERE tablename = 'alerts' AND indexname = 'alerts_fingerprint_open_uq'"
+            "SELECT 1 FROM pg_indexes WHERE tablename = 'alerts' AND indexname = 'alerts_fingerprint_open_uq'"
         ).fetchone()
     assert exists is not None
