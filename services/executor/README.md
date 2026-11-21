@@ -7,6 +7,7 @@ running more instances (step runs are claimed with `SKIP LOCKED` + lease; schedu
 | --- | --- |
 | `engine.py` | run state machine; API entry points `start_run`, `run_step`, `mark_done`, `approve`, `reject`, `cancel_run` |
 | `scheduler.py` | every 10 s: resolve silent alerts (`autoResolveAfter`), delete `processed_events` older than 24 h |
+| `importer.py` | runbook import (spec §7 table): YAML / Markdown / checklist / text / link → canonical form, no LLM |
 | `runbooks.py` | runbooks / runs / approvals as the API shows them: validation against the contract, rendered steps, run and approval views |
 | `history.py` | alert history: runbook runs, steps, approvals, automatic resolves → `audit_log` + `NOTIFY` |
 | `alerts.py` | what the executor reads / writes on `alerts` (A's table, spec §8 columns) |
@@ -88,3 +89,16 @@ alert id, in the same transaction as the change, plus `NOTIFY alerts_changed`. T
 | `approval.requested` | `executor` | step, approval, team, role |
 | `approval.approved`, `approval.rejected` | user | step, approval, via (ui / sms / email) |
 | `alert.resolved` | user who started the run / `executor` (how: runbook), `scheduler` (how: silence) | how |
+
+## Import (`importer.py`, `POST /api/runbooks/import`)
+
+Deterministic (no LLM), output valid against `contracts/runbook.schema.json`; `dryRun=true` previews, a saved
+runbook is **not approved** (actions run only after a manager approves it).
+
+- **YAML**: `match` / `matches`, steps with `check` (title), `action`, `url` / `team` / `service` (→ params),
+  `params`, `approval`, `approval_role`, `wait`, `text`. `if: fails twice` / `fails N times` → `attempts`, `then:` →
+  `on_failure` (a step id or the action of a later step). An unknown field or phrase becomes a `text` step with
+  `needs_review: true`. `retry_workflow` / `restart_service` resolve the alert on success unless `resolves` says
+  otherwise. Step ids: `id`, else `check-<host>` for checks, else the first word of the action.
+- **Markdown**: each numbered item → a manual step. **Checklist**: each `- [ ]` item → a manual step with a
+  checkbox. **Text**: one manual step. **Link**: no steps, the URL is shown on the alert.
