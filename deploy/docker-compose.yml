@@ -128,6 +128,19 @@ services:
       <<: *http-healthcheck
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost/healthz')"]
 
+  web: # owner C: React UI behind nginx; /api and /ws proxied to the api service
+    build:
+      context: ../web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      <<: *http-healthcheck
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/healthz"]
+
   seed: # owner B: demo people, teams, on-call, preferences (deploy/seed); keeps rows edited in the UI
     <<: *app
     command: ["python", "-m", "deploy.seed.load"]
