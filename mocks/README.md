@@ -15,4 +15,9 @@
 
 Email goes to Mailpit (compose, http://localhost:8025).
 
-Action targets (counterparty-service, workflow engine, …) arrive with `feat/actions-approvals`.
+## Action targets (`action_targets/`), http://localhost:8091
+
+Mock counterparty-service (`GET /health`), workflow engine (`POST /workflows/<id>/retry`), orchestrator
+(`POST /services/<name>/restart`), tickets (`POST /tickets`) and webhook receiver (`POST /webhook`), one container
+with those compose host names. The page lists calls and toggles failures; scripts use
+`POST /api/fail {"target": "workflow", "times": 2}` (`-1` = always, `0` = never).

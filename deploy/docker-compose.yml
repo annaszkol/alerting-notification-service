@@ -16,6 +16,7 @@ x-app: &app
     SMTP_PORT: "1025"
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
     PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:5173} # links in emails / SMS
+    APPROVAL_LINK_SECRET: ${APPROVAL_LINK_SECRET:-dev-only-approval-link-secret} # signs approve/reject email links
   depends_on: &app-deps
     seed:
       condition: service_completed_successfully
@@ -110,6 +111,22 @@ services:
       postgres:
         condition: service_healthy
 
+  action-targets: # owner B: mock targets of runbook actions (mocks/action_targets), failure toggles at :8091
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    command: ["uvicorn", "mocks.action_targets.app:app", "--host", "0.0.0.0", "--port", "80"]
+    ports:
+      - "8091:80"
+    networks:
+      default:
+        aliases: [counterparty-service, workflow-engine, orchestrator, tickets, webhook-receiver]
+    healthcheck:
+      <<: *http-healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost/healthz')"]
+
   seed: # owner B: demo people, teams, on-call, preferences (deploy/seed); keeps rows edited in the UI
     <<: *app
     command: ["python", "-m", "deploy.seed.load"]
@@ -140,6 +157,12 @@ services:
   executor: # owner B
     <<: *app
     command: ["python", "-m", "services.executor"]
+    environment:
+      <<: *app-env
+      ACTION_HTTP_ALLOWLIST: counterparty-service,webhook-receiver
+      WORKFLOW_ENGINE_URL: http://workflow-engine
+      ORCHESTRATOR_URL: http://orchestrator
+      TICKETS_URL: http://tickets
 
   api: # owner C
     <<: *app

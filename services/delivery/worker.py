@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -60,7 +61,7 @@ WHERE id IN (
     LIMIT %(limit)s
     FOR UPDATE SKIP LOCKED
 )
-RETURNING id, alert_id, user_id, channel, kind, dedup_key, attempts, reply_code
+RETURNING id, alert_id, user_id, channel, kind, dedup_key, attempts, reply_code, message
 """
 
 COMPLETE_SQL = """
@@ -88,6 +89,7 @@ class Claimed:
     dedup_key: str
     attempts: int
     reply_code: str | None
+    message: str | None = None  # custom text from the `notify` runbook action
 
 
 @dataclass(frozen=True)
@@ -113,7 +115,9 @@ async def claim(
     async with conn.transaction():
         cur = await conn.execute(CLAIM_SQL, {"now": now, "lease": lease, "limit": limit})
         rows = await cur.fetchall()
-    return [Claimed(r[0], r[1], r[2], Channel(r[3]), NotificationKind(r[4]), r[5], r[6], r[7]) for r in sorted(rows)]
+    return [
+        Claimed(r[0], r[1], r[2], Channel(r[3]), NotificationKind(r[4]), r[5], r[6], r[7], r[8]) for r in sorted(rows)
+    ]
 
 
 async def complete(conn: psycopg.AsyncConnection, results: list[tuple[Claimed, Outcome]]) -> int:
@@ -139,7 +143,7 @@ async def complete(conn: psycopg.AsyncConnection, results: list[tuple[Claimed, O
 def render(row: Claimed, user: Mapping[str, Any], alert: Mapping[str, Any], base_url: str) -> Message:
     """Build the channel message. Live fields are filled in now (spec §3)."""
     alert_url = f"{base_url}/a/{alert['id']}"
-    title = fill_live_fields(alert["title"] or "", alert, alert_url)
+    title = fill_live_fields(row.message or alert["title"] or "", alert, alert_url)
     body = fill_live_fields(alert["body"] or "", alert, alert_url)
     severity = alert["severity"] or "info"
     recipient = Recipient(
@@ -150,14 +154,23 @@ def render(row: Claimed, user: Mapping[str, Any], alert: Mapping[str, Any], base
         timezone=user["timezone"],
     )
 
+    links = {"alert": alert_url}
     if row.kind is NotificationKind.LIMIT:
         subject = f"Notification limit reached ({row.channel.value})"
         text = f"Limit reached: further alerts only in the UI. {base_url}/"
     elif row.kind is NotificationKind.APPROVAL:
         subject = f"Approval requested: {title}"
-        text = f"Approval requested: {title} {alert_url}" + (
-            f" APPROVE {row.reply_code} / REJECT {row.reply_code}" if row.reply_code else ""
-        )
+        # the code goes first, so cutting an SMS to 160 characters never cuts the code
+        codes = f"APPROVE {row.reply_code} or REJECT {row.reply_code}: " if row.reply_code else ""
+        text = f"{codes}approval requested: {title} {alert_url}"
+        if row.channel is Channel.EMAIL:
+            links.update(approval_links(row.dedup_key, base_url))
+            lines = [f"Approval requested: {title}", "", body] if body else [f"Approval requested: {title}"]
+            if "approve" in links:
+                lines += ["", f"Approve: {links['approve']}", f"Reject: {links['reject']}"]
+            if row.reply_code:
+                lines += ["", f"Or reply by SMS: APPROVE {row.reply_code} / REJECT {row.reply_code}"]
+            text = "\n".join([*lines, "", f"Alert: {alert_url}"])
     elif row.channel is Channel.SMS:
         subject, text = title, sms_text(severity, title, alert_url, row.reply_code)
     elif row.channel is Channel.PHONE:
@@ -180,8 +193,21 @@ def render(row: Claimed, user: Mapping[str, Any], alert: Mapping[str, Any], base
         subject=subject,
         text=text,
         reply_code=row.reply_code,
-        links={"alert": alert_url},
+        links=links,
     )
+
+
+def approval_links(dedup_key: str, base_url: str) -> dict[str, str]:
+    """Signed, expiring "approve" / "reject" links for an approval request (spec §6). Empty without a secret."""
+    if not dedup_key.startswith("approval:") or not os.environ.get("APPROVAL_LINK_SECRET"):
+        return {}
+    from services.executor.approvals import sign_link
+
+    approval_id, now = int(dedup_key.split(":", 1)[1]), datetime.now(UTC)
+    return {
+        "approve": f"{base_url}/approvals/{sign_link(approval_id, 'approved', now)}",
+        "reject": f"{base_url}/approvals/{sign_link(approval_id, 'rejected', now)}",
+    }
 
 
 class DeliveryWorker:
