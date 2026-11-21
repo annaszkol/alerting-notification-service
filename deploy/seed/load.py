@@ -26,7 +26,7 @@ from psycopg.types.json import Jsonb
 log = logging.getLogger("seed")
 
 SEED_DIR = Path(__file__).parent
-DEFAULT_FILES = [SEED_DIR / "people.yaml"]
+DEFAULT_FILES = [SEED_DIR / "people.yaml", SEED_DIR / "runbooks.yaml"]
 
 SLUG = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
 DURATION = re.compile(r"^(\d+)([smhdw])$")
@@ -49,12 +49,13 @@ def parse_duration(value: str) -> timedelta:
 
 
 def load_files(paths: list[Path]) -> dict[str, Any]:
-    merged: dict[str, Any] = {"users": [], "teams": [], "preferences": {}}
+    merged: dict[str, Any] = {"users": [], "teams": [], "preferences": {}, "runbooks": []}
     for path in paths:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         merged["users"] += data.get("users", [])
         merged["teams"] += data.get("teams", [])
         merged["preferences"].update(data.get("preferences", {}))
+        merged["runbooks"] += data.get("runbooks", [])
     return merged
 
 
@@ -139,7 +140,25 @@ def validate(data: Mapping[str, Any]) -> list[str]:
         if user not in known:
             errors.append(f"preferences for unknown user {user!r}")
         _check_preferences(prefs, f"user {user}", errors)
+    _check_runbooks(data, errors)
     return errors
+
+
+def _check_runbooks(data: Mapping[str, Any], errors: list[str]) -> None:
+    from services.executor.runbooks import validate as validate_runbook
+
+    teams = {t.get("id"): t.get("members", {}) for t in data["teams"]}
+    for runbook in data.get("runbooks", []):
+        rid, owner = runbook.get("id"), runbook.get("owner")
+        canonical = runbook.get("canonical") or {}
+        if canonical.get("id") != rid:
+            errors.append(f"runbook {rid}: canonical.id must be {rid!r}")
+        if owner not in teams:
+            errors.append(f"runbook {rid}: unknown owner team {owner!r}")
+        elif runbook.get("approved_by") and teams[owner].get(runbook["approved_by"]) != "manager":
+            errors.append(f"runbook {rid}: approved_by must be a manager of {owner}")
+        for err in validate_runbook(canonical):
+            errors.append(f"runbook {rid}: {err['path']}: {err['message']}")
 
 
 UPSERTS = {
@@ -174,7 +193,7 @@ UPSERTS = {
 
 def apply(conn: psycopg.Connection, data: Mapping[str, Any], reset: bool = False) -> dict[str, int]:
     """Insert (or with reset: upsert) everything in the caller's transaction. Returns rows written per table."""
-    written = dict.fromkeys(UPSERTS, 0)
+    written = dict.fromkeys([*UPSERTS, "runbooks"], 0)
 
     def write(table: str, params: Mapping[str, Any]) -> None:
         insert, update = UPSERTS[table]
@@ -221,6 +240,19 @@ def apply(conn: psycopg.Connection, data: Mapping[str, Any], reset: bool = False
                 "by": Jsonb(p.get("by_severity", {})),
                 "limits": Jsonb(p.get("limits", {})),
             },
+        )
+    from services.executor.runbooks import upsert as upsert_runbook
+
+    for runbook in data.get("runbooks", []):
+        written["runbooks"] += upsert_runbook(
+            conn,
+            runbook["canonical"],
+            owner_team=runbook["owner"],
+            title=runbook.get("title", runbook["id"]),
+            fmt=runbook.get("format", "text"),
+            original=runbook.get("original", ""),
+            approved_by=runbook.get("approved_by"),
+            reset=reset,
         )
     return written
 
