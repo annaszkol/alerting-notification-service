@@ -99,7 +99,7 @@ def database():
 def conn(database):
     """Users and teams from DIRECTORY in the database; empty outbox."""
     with psycopg.connect(database) as conn:
-        conn.execute("TRUNCATE notifications, team_members, teams, users")
+        conn.execute("TRUNCATE notifications, team_members, teams, users CASCADE")
         users = sorted({u for members in DIRECTORY.teams.values() for u in members} | {"frank"})
         for user in users:
             conn.execute("INSERT INTO users (id, name) VALUES (%s, %s)", (user, user.title()))

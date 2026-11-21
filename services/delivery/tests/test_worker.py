@@ -137,7 +137,7 @@ def database():
 @pytest.fixture
 def db(database):
     with psycopg.connect(database, autocommit=True) as conn:
-        conn.execute("TRUNCATE notifications, team_members, teams, users")
+        conn.execute("TRUNCATE notifications, team_members, teams, users CASCADE")
         conn.execute("DELETE FROM alerts")
         conn.execute(
             "INSERT INTO users (id, name, email, phone) VALUES"
