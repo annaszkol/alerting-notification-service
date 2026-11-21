@@ -7,6 +7,7 @@ running more instances (step runs are claimed with `SKIP LOCKED` + lease; schedu
 | --- | --- |
 | `engine.py` | run state machine; API entry points `start_run`, `run_step`, `mark_done`, `approve`, `reject`, `cancel_run` |
 | `scheduler.py` | every 10 s: resolve silent alerts (`autoResolveAfter`), delete `processed_events` older than 24 h |
+| `history.py` | alert history: runbook runs, steps, approvals, automatic resolves → `audit_log` + `NOTIFY` |
 | `alerts.py` | what the executor reads / writes on `alerts` (A's table, spec §8 columns) |
 | `templating.py` | stand-in renderer for step params until the shared templater lands |
 | `actions/builtin.py` | built-in actions (`build_registry`) |
@@ -71,3 +72,18 @@ makes a target fail the next N calls or always (spec §13 test 12: "mock set to 
   24 h. `decide_by_token(conn, token, decision)` backs `POST /approvals/by-token/{token}` (no login): the addressee's
   role is still checked, `invalid_token` for a bad or expired token.
 - The approval SMS starts with the codes, so cutting it to 160 characters never loses them.
+
+## History ("who did what", spec §7)
+
+Everything the executor, scheduler and approvals do is written to C's `audit_log` as `target_type = 'alert'` with the
+alert id, in the same transaction as the change, plus `NOTIFY alerts_changed`. The alert timeline
+(`GET /api/alerts/{id}/timeline`) shows them as `kind = step` / `approval`.
+
+| Action | Actor | Details |
+| --- | --- | --- |
+| `run.started`, `run.cancelled` | user, or `executor` (mode auto) / `system` | run, runbook, mode |
+| `step.started` ("run" button), `step.done` (manual step ticked) | user | run, step, stepRun |
+| `step.succeeded`, `step.attempt_failed`, `step.failed`, `step.skipped` | `executor` | run, step, stepRun, attempt, error |
+| `approval.requested` | `executor` | step, approval, team, role |
+| `approval.approved`, `approval.rejected` | user | step, approval, via (ui / sms / email) |
+| `alert.resolved` | user who started the run / `executor` (how: runbook), `scheduler` (how: silence) | how |

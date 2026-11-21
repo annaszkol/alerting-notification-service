@@ -26,6 +26,7 @@ import psycopg
 
 from db.rows import plain_rows
 from services.delivery.codes import CODE_ALPHABET, CODE_LENGTH, new_code  # noqa: F401 - re-exported
+from services.executor import history
 from services.executor.engine import Executor, ExecutorError
 
 APPROVAL_CHANNELS = ("sms", "email")
@@ -68,6 +69,10 @@ def request_approval(
     else:  # pragma: no cover - 32^6 codes
         raise RuntimeError("could not allocate an approval code")
 
+    history.record(
+        conn, run["alert_id"], "executor", "approval.requested", run=run["id"], step=step["id"],
+        stepRun=step_run_id, approval=approval_id, team=team, role=role,
+    )  # fmt: skip
     for user in approvers(conn, team, role):
         for channel in APPROVAL_CHANNELS:
             conn.execute(
@@ -117,6 +122,15 @@ def decide(
         "UPDATE approvals SET decision = %s, decided_by = %s, via = %s, decided_at = %s WHERE id = %s",
         (decision, user, via, now, approval_id),
     )
+    alert_id = conn.execute(
+        "SELECT r.alert_id, s.step_id FROM step_runs s JOIN runbook_runs r ON r.id = s.run_id WHERE s.id = %s",
+        (step_run_id,),
+    ).fetchone()
+    if alert_id:
+        history.record(
+            conn, alert_id[0], user, f"approval.{decision}", via=via, step=alert_id[1], stepRun=step_run_id,
+            approval=approval_id,
+        )  # fmt: skip
     executor = executor or Executor(actions={})
     try:
         if decision == "approved":

@@ -227,8 +227,37 @@ def _audit_summary(action: str, actor: str, details: dict[str, Any]) -> str:
             how = details.get("how", "manual")
             text = f"resolved by {actor}{via}" if how == "manual" else f"resolved ({how})"
             return f"{text}: {details['note']}" if details.get("note") else text
+        case "run.started":
+            return f"runbook {details.get('runbook', '')} started by {actor} ({details.get('mode', 'manual')})"
+        case "run.cancelled":
+            return f"runbook run cancelled by {actor}"
+        case "step.started":
+            return f"step {details.get('step')} started by {actor}"
+        case "step.succeeded":
+            return f"step {details.get('step')} succeeded"
+        case "step.attempt_failed":
+            return f"step {details.get('step')} attempt {details.get('attempt')} failed: {details.get('error')}"
+        case "step.failed":
+            return f"step {details.get('step')} failed: {details.get('error')}"
+        case "step.skipped":
+            return f"step {details.get('step')} skipped ({details.get('reason', '')})"
+        case "step.done":
+            return f"step {details.get('step')} done by {actor}"
+        case "approval.requested":
+            return f"approval of {details.get('step')} requested from {details.get('team')} {details.get('role')}s"
+        case "approval.approved" | "approval.rejected":
+            return f"{details.get('step')} {action.split('.')[1]} by {actor}{via}"
         case _:
             return f"{action} by {actor}{via}"
+
+
+def _audit_kind(action: str) -> str:
+    """TimelineEntry.kind (contracts/openapi.yaml): runbook entries written by B's executor are steps / approvals."""
+    if action.startswith(("step.", "run.")):
+        return "step"
+    if action.startswith("approval."):
+        return "approval"
+    return "state"
 
 
 def timeline(conn: psycopg.Connection, alert_id: int) -> list[dict[str, Any]]:
@@ -242,7 +271,7 @@ def timeline(conn: psycopg.Connection, alert_id: int) -> list[dict[str, Any]]:
         entries.append(
             {
                 "ts": a["ts"],
-                "kind": "state",
+                "kind": _audit_kind(a["action"]),
                 "actor": a["actor"],
                 "summary": _audit_summary(a["action"], a["actor"], a["details"]),
                 "details": {"action": a["action"], **a["details"]},

@@ -35,7 +35,9 @@ class SqlAlerts:
             (how, by, now, alert_id),
         )
         if cur.rowcount:
-            notify_alerts_changed(conn, [alert_id])
+            from services.executor import history
+
+            history.record(conn, alert_id, by or "executor", "alert.resolved", how=how)
         return cur.rowcount == 1
 
 

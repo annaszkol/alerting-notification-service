@@ -36,6 +36,7 @@ from psycopg.types.json import Jsonb
 
 from contracts.actions import Action, ActionContext, ActionResult, Approval, effective_approval
 from db.rows import plain_rows
+from services.executor import history
 from services.executor.alerts import AlertGateway, SqlAlerts
 from services.executor.templating import render_params
 
@@ -141,6 +142,20 @@ def _maybe_finish(conn: psycopg.Connection, run_id: int, now: datetime) -> None:
     _finish_run(conn, run_id, "failed" if last and last[0] == "failed" else "succeeded", now)
 
 
+def _record_step(
+    conn: psycopg.Connection,
+    row: Mapping[str, Any],
+    actor: str | None,
+    action: str,
+    run: Mapping[str, Any] | None = None,
+    **details: Any,
+) -> None:
+    run = run or _get_run(conn, row["run_id"])
+    history.record(
+        conn, run["alert_id"], actor, action, run=run["id"], step=row["step_id"], stepRun=row["id"], **details
+    )
+
+
 # --- walking the runbook ---------------------------------------------------------------------------------
 
 
@@ -200,6 +215,10 @@ class Executor:
                VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
             (alert_id, runbook["id"], Jsonb(dict(runbook)), mode or runbook.get("mode", "manual"), started_by, now),
         ).fetchone()[0]
+        history.record(
+            conn, alert_id, started_by, "run.started", run=run_id, runbook=runbook["id"],
+            mode=mode or runbook.get("mode", "manual"),
+        )  # fmt: skip
         self.advance(conn, run_id, _next_step_id({"runbook": runbook}, None), now)
         return run_id
 
@@ -212,6 +231,7 @@ class Executor:
         if row["kind"] != "action" or row["status"] != "pending" or row["next_run_at"] is not None:
             raise ExecutorError(f"step run {step_run_id} is not waiting to be started")
         conn.execute("UPDATE step_runs SET next_run_at = %s, started_by = %s WHERE id = %s", (now, user, step_run_id))
+        _record_step(conn, row, user, "step.started")
 
     @plain_rows
     def mark_done(self, conn: psycopg.Connection, step_run_id: int, user: str, now: datetime) -> None:
@@ -223,6 +243,7 @@ class Executor:
             "UPDATE step_runs SET status = 'done', executed_by = %s, finished_at = %s WHERE id = %s",
             (user, now, step_run_id),
         )
+        _record_step(conn, row, user, "step.done")
         _maybe_finish(conn, row["run_id"], now)
 
     @plain_rows
@@ -253,7 +274,10 @@ class Executor:
         _finish_run(conn, row["run_id"], "rejected", now)
 
     @plain_rows
-    def cancel_run(self, conn: psycopg.Connection, run_id: int, now: datetime) -> None:
+    def cancel_run(self, conn: psycopg.Connection, run_id: int, now: datetime, by: str | None = None) -> None:
+        run = _get_run(conn, run_id)
+        if run["status"] in ACTIVE_RUN:
+            history.record(conn, run["alert_id"], by or "system", "run.cancelled", run=run_id)
         _finish_run(conn, run_id, "cancelled", now)
         conn.execute(
             "UPDATE step_runs SET status = 'skipped', finished_at = %s, next_run_at = NULL"
@@ -292,14 +316,16 @@ class Executor:
             step = _step(run, row["step_id"])
             if run["status"] not in ACTIVE_RUN:
                 self._close(conn, row, "skipped", now)
-                return "skipped (run finished)"
+                return "skipped (run finished)"  # the run's end is already in the history
             alert = self.alerts.get(conn, run["alert_id"])
             if step.get("only_if_open") and (alert is None or alert.state == "resolved"):
                 if self._close(conn, row, "skipped", now):
+                    _record_step(conn, row, None, "step.skipped", run=run, reason="alert resolved")
                     self.advance(conn, run["id"], _next_step_id(run, step["id"]), now)
                 return "skipped (alert resolved)"
             if row["kind"] == "wait":
                 if self._close(conn, row, "succeeded", now):
+                    _record_step(conn, row, None, "step.succeeded", run=run)
                     self.advance(conn, run["id"], _next_step_id(run, step["id"]), now)
                 return "waited"
             if _effective(step, self.actions) is Approval.REQUIRED and row["approved_by"] is None:
@@ -342,6 +368,7 @@ class Executor:
             if result.ok:
                 if not self._close(conn, row, "succeeded", now, result=Jsonb(result.output)):
                     return "lost lease"
+                _record_step(conn, row, None, "step.succeeded", run=run, attempt=attempt)
                 if step.get("resolves"):  # the problem is fixed: resolve the alert and end the run
                     by = row["started_by"] or run["started_by"]
                     self.alerts.resolve(conn, run["alert_id"], how="runbook", by=by, now=now)
@@ -355,12 +382,15 @@ class Executor:
                     conn, row, status="pending", next_run_at=now + RETRY_DELAY, error=result.error,
                     result=Jsonb(result.output), lease_until=None, lease_token=None,
                 )  # fmt: skip
+                if updated:
+                    _record_step(conn, row, None, "step.attempt_failed", run=run, attempt=attempt, error=result.error)
                 return "retry" if updated else "lost lease"
             return self._fail(conn, run, step, row, result.error, now, output=result.output)
 
     def _fail(self, conn, run, step, row, error, now, output=None) -> str:
         if not self._close(conn, row, "failed", now, error=error, result=Jsonb(output or {})):
             return "lost lease"
+        _record_step(conn, row, None, "step.failed", run=run, attempt=row.get("attempt"), error=error)
         target = step.get("on_failure") or _next_step_id(run, step["id"])
         self.advance(conn, run["id"], target, now)
         return "failed"

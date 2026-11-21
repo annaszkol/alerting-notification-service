@@ -216,7 +216,7 @@ def database():
 def conn(database):
     with psycopg.connect(database, autocommit=True) as conn:
         conn.execute("TRUNCATE runbook_runs, step_runs, approvals, alert_escalations, channel_preferences,"
-                     " teams, users CASCADE")  # fmt: skip
+                     " teams, users, audit_log CASCADE")  # fmt: skip
         conn.execute("DELETE FROM alerts")
         conn.execute(
             "INSERT INTO users (id, name, phone) VALUES ('carol', 'Carol', '+48500000003'),"
@@ -315,6 +315,17 @@ def test_spec_test_12_runbook_with_sms_approval(conn, database, targets):
     assert calls == ["health", "workflow", "workflow"]
     assert decide_by_code(conn, pending["code"], "+48500000003", "approved", T0).result == "unknown_code"  # used
 
+    # spec §7 "kto i co zrobił": the alert history (audit_log) tells the whole story
+    assert history(conn) == [
+        ("executor", "run.started", None),
+        ("executor", "step.succeeded", "check-counterparty"),
+        ("executor", "step.attempt_failed", "retry"),
+        ("executor", "step.failed", "retry"),
+        ("executor", "approval.requested", "escalate"),
+        ("carol", "approval.approved", "escalate"),
+        ("executor", "step.succeeded", "escalate"),
+    ]
+
 
 def set_fail(targets, target, times):
     async def go():
@@ -322,6 +333,14 @@ def set_fail(targets, target, times):
             await c.post("/api/fail", json={"target": target, "times": times})
 
     run(go())
+
+
+def history(conn, alert_id=1):
+    rows = conn.execute(
+        "SELECT actor, action, details FROM audit_log WHERE target_type = 'alert' AND target_id = %s ORDER BY id",
+        (str(alert_id),),
+    ).fetchall()
+    return [(actor, action, details.get("step")) for actor, action, details in rows]
 
 
 async def _calls(targets):
