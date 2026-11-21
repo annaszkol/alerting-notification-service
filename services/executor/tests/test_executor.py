@@ -105,17 +105,6 @@ def database():
     if not TEST_DATABASE_URL:
         pytest.skip("TEST_DATABASE_URL not set")
     with temporary_database("test_executor", migrate=True) as conninfo:
-        with psycopg.connect(conninfo, autocommit=True) as conn:
-            # Tables owned by A, minimal shape from spec §8.
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS alerts (
-                       id bigint PRIMARY KEY, state text NOT NULL DEFAULT 'open', owner jsonb, severity text,
-                       first_event jsonb, last_seen timestamptz, auto_resolve_after interval,
-                       resolved_how text, resolved_by text, resolved_at timestamptz)"""
-            )
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS processed_events (event_id text PRIMARY KEY, processed_at timestamptz)"
-            )
         yield conninfo
 
 
@@ -444,7 +433,7 @@ def test_processed_events_cleanup(conn):
 
 
 @pytest.mark.db
-def test_jobs_skip_missing_tables():
+def test_jobs_on_a_fresh_database():
     if not TEST_DATABASE_URL:
         pytest.skip("TEST_DATABASE_URL not set")
     with temporary_database("test_sched_empty", migrate=True) as conninfo:

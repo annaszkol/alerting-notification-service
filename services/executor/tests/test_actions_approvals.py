@@ -203,12 +203,6 @@ def database():
     if not TEST_DATABASE_URL:
         pytest.skip("TEST_DATABASE_URL not set")
     with temporary_database("test_actions", migrate=True) as conninfo:
-        with psycopg.connect(conninfo, autocommit=True) as conn:
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS alerts (
-                       id bigint PRIMARY KEY, state text NOT NULL DEFAULT 'open', owner jsonb, severity text,
-                       first_event jsonb, resolved_how text, resolved_by text, resolved_at timestamptz)"""
-            )
         yield conninfo
 
 
@@ -306,6 +300,7 @@ def test_spec_test_12_runbook_with_sms_approval(conn, database, targets):
     decided = approval(conn, run_id)
     assert (decided["decision"], decided["decided_by"], decided["via"]) == ("approved", "carol", "sms")
     # escalate: team added to the alert, its on-call person notified
+    assert conn.execute("SELECT extra_teams FROM alerts WHERE id = 1").fetchone()[0] == ["counterparty-support"]
     assert conn.execute("SELECT team_id FROM alert_escalations WHERE alert_id = 1").fetchall() == [
         ("counterparty-support",)
     ]
