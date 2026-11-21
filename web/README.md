@@ -15,10 +15,37 @@ Types are generated from the API contract: `npm run gen:api` → `src/api/schema
 | `src/runbooks/RunbookPanel.tsx` | runbook on the alert page: rendered steps, start run, Run / Done / Approve / Reject per step, who did what |
 | `src/pages/Approvals.tsx` | approvals I can decide (or all pending), approve / reject |
 | `src/pages/ApprovalLink.tsx` | page behind the email link (`/approvals/:token`), no sign-in; 404 / 409 / 410 explained |
-| `src/pages/Runbooks.tsx` | runbooks with canonical steps and original text; managers approve and switch auto mode |
+| `src/pages/Runbooks.tsx` | runbooks with canonical steps and original text; managers approve, switch auto mode, edit, delete |
+| `src/pages/RunbookImport.tsx` | import YAML / numbered list / checklist / text / link, preview the canonical steps (`dryRun`), save |
+| `src/pages/RunbookEditor.tsx` | step editor; action parameters as a form from `paramsSchema`; approval never below the action's minimum |
+| `src/pages/Rules.tsx`, `RuleEditor.tsx` | rule list (enable / disable) and editor: condition AND / OR / NOT, routing, presentation, grouping, auto-resolve, runbooks, tester next to it |
+| `src/rules/` | `condition.ts` (condition JSON <-> form tree), `ConditionBuilder`, `RouteEditor`, `RuleTester`, `ruleDoc.ts` |
+| `src/pages/Unmapped.tsx`, `Mappings.tsx`, `MappingEditor.tsx` | admin: unmapped shapes, mappings, editor with clickable JSON tree and live preview |
+| `src/pages/Preferences.tsx` | my channels per severity, working hours, time zone |
+| `src/pages/Oncall.tsx` | every team's rotation and who is on duty; managers edit their team's rotation |
+| `src/pages/Suggestions.tsx` | proposed changes; managers of the owning team accept / reject (proposing is on the alert page) |
+| `src/pages/Admin.tsx` | admin: teams (with new people inline = onboarding in one call), people, sources (ingest token shown once) |
+| `src/auth/permissions.ts` | who may do what; mirrors `services/api/auth.py` so the UI hides buttons that would end in 403 |
 
 Routes: `/login`, `/` (feed), `/alerts/:id`, `/a/:id` (short link from SMS), `/approvals`, `/approvals/:token`
-(email link, no sign-in), `/runbooks`.
+(email link, no sign-in), `/rules`, `/rules/new`, `/rules/:id` (`?alert=<id>` tests on that alert), `/runbooks`,
+`/runbooks/import`, `/runbooks/:id/edit`, `/oncall`, `/suggestions`, `/preferences`, admin: `/unmapped`, `/mappings`,
+`/mappings/new`, `/mappings/:id`, `/admin`.
+
+### Who sees what
+
+The API decides (roles are read from the database on every request); the UI only hides what would be refused.
+
+| | member | manager of the team | admin |
+| --- | --- | --- | --- |
+| Feed, alert, ack / resolve, propose a change | yes | yes | yes |
+| Run runbook steps, tick manual steps | own teams' alerts | own teams' alerts | all |
+| Approve / reject a step | if the step needs a `member` | yes | only as a team member |
+| Rules | personal rules | team rules + personal | all |
+| Runbooks: import, edit, approve, auto mode, delete | read only | own team | all |
+| On-call rotation | read only | own team | all |
+| Decide proposed changes | — | own team's rules / runbooks | all |
+| Unmapped events, mappings, teams, people, sources | — | — | yes |
 
 ## Run
 

@@ -16,7 +16,16 @@ const RUN_COLOR: Record<RunbookRun["status"], string> = {
   cancelled: "gray",
 };
 
-export function RunbookPanel({ alertId, runbook }: { alertId: number; runbook: AlertRunbook }) {
+interface Props {
+  alertId: number;
+  runbook: AlertRunbook;
+  /** member of one of the alert's teams: may start runs and steps and tick manual steps (API: _require_alert_member) */
+  canRun: boolean;
+  /** approval ids this person may decide (GET /approvals?mine=true) */
+  decidable: Set<number>;
+}
+
+export function RunbookPanel({ alertId, runbook, canRun, decidable }: Props) {
   const client = useQueryClient();
   const run = useQuery({
     queryKey: ["run", runbook.runId],
@@ -60,7 +69,7 @@ export function RunbookPanel({ alertId, runbook }: { alertId: number; runbook: A
           {!runbook.approved && <Badge color="gray">not approved: read only</Badge>}
           {run.data && <Badge color={RUN_COLOR[run.data.status]}>{run.data.status.replace("_", " ")}</Badge>}
         </Group>
-        {runbook.approved && !active && (
+        {runbook.approved && !active && canRun && (
           <Button size="xs" onClick={() => start.mutate()} loading={start.isPending}>
             {run.data ? "Run again" : "Start run"}
           </Button>
@@ -90,7 +99,9 @@ export function RunbookPanel({ alertId, runbook }: { alertId: number; runbook: A
                     {sr.status.replace("_", " ")}
                   </Badge>
                 )}
-                {stepActions(step, sr).map((action) => (
+                {stepActions(step, sr)
+                  .filter((action) => (action === "approve" || action === "reject" ? Boolean(sr?.approvalId && decidable.has(sr.approvalId)) : canRun))
+                  .map((action) => (
                   <Button
                     key={action}
                     size="compact-xs"
@@ -101,7 +112,12 @@ export function RunbookPanel({ alertId, runbook }: { alertId: number; runbook: A
                   >
                     {{ done: "Done", run: "Run", approve: "Approve", reject: "Reject" }[action]}
                   </Button>
-                ))}
+                  ))}
+                {sr?.status === "waiting_approval" && !(sr.approvalId && decidable.has(sr.approvalId)) && (
+                  <Text size="xs" c="dimmed">
+                    waiting for a {step.approvalRole ?? "manager"} to approve
+                  </Text>
+                )}
               </Group>
               {sr && (stepWho(sr) || sr.result?.error || sr.note) && (
                 <Text size="xs" c="dimmed">

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "../api/client";
+import { useTeams } from "../api/directory";
 import { SEVERITIES, STATES, type AlertState, type Me, type Severity } from "../api/types";
 import { SeverityBadge, StateBadge } from "../components/badges";
 import { relativeTime } from "../components/time";
@@ -21,7 +22,9 @@ export function Feed() {
   const [q] = useDebouncedValue(search, 300);
   const feed = useAlertsFeed({ team, severity, state, q });
 
-  const teams = me.data?.teams.map((t) => ({ value: t.id, label: t.name })) ?? [];
+  const allTeams = useTeams();
+  // admins see every team's alerts, so they can filter by any team; others by their own teams
+  const teams = (me.data?.isAdmin ? allTeams.data : me.data?.teams)?.map((t) => ({ value: t.id, label: t.name })) ?? [];
 
   return (
     <Stack>
@@ -32,7 +35,7 @@ export function Feed() {
         </Text>
       </Group>
       <Group align="end" wrap="wrap">
-        <Select label="Team" placeholder="All my alerts" data={teams} value={team} onChange={setTeam} clearable w={200} />
+        <Select label="Team" placeholder={me.data?.isAdmin ? "All teams" : "All my alerts"} data={teams} value={team} onChange={setTeam} clearable w={200} />
         <MultiSelect
           label="Severity"
           placeholder="Any"

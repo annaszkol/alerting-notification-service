@@ -1,12 +1,15 @@
 // P1: alert details (spec §9): fields from the rule, count, timeline, notifications and their status,
 // runbooks with values, acknowledge / resolve. Refetches when the WebSocket reports a change of this alert.
-import { Alert, Anchor, Badge, Button, Card, Code, Group, Loader, SimpleGrid, Stack, Table, Text, Textarea, Title } from "@mantine/core";
+import { Alert, Anchor, Badge, Button, Card, Code, Group, Loader, SegmentedControl, Select, SimpleGrid, Stack, Table, Text, Textarea, Title } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { api } from "../api/client";
-import type { AlertDetail as Detail, TimelineEntry } from "../api/types";
+import { api, queryString } from "../api/client";
+import type { AlertDetail as Detail, Approval, Suggestion, TimelineEntry } from "../api/types";
+import { usePermissions } from "../auth/permissions";
+import { ErrorAlert } from "../components/ErrorAlert";
+import { JsonBlock } from "../components/JsonTree";
 import { SeverityBadge, StateBadge } from "../components/badges";
 import { formatTime } from "../components/time";
 import { useLive } from "../feed/live";
@@ -32,6 +35,12 @@ export function AlertDetail() {
   const alert = useQuery({ queryKey: ["alert", id], queryFn: () => api<Detail>(`/alerts/${id}`) });
   const timeline = useQuery({ queryKey: ["timeline", id], queryFn: () => api<TimelineEntry[]>(`/alerts/${id}/timeline`) });
   const [note, setNote] = useState("");
+  const perms = usePermissions();
+  // approvals this person may decide: the API's own answer (role in the approval's team), not a guess
+  const mine = useQuery({
+    queryKey: ["approvals", "mine"],
+    queryFn: () => api<Approval[]>(`/approvals${queryString({ status: "pending", mine: "true" })}`),
+  });
 
   useEffect(
     () =>
@@ -40,6 +49,7 @@ export function AlertDetail() {
           void client.invalidateQueries({ queryKey: ["alert", id] });
           void client.invalidateQueries({ queryKey: ["timeline", id] });
           void client.invalidateQueries({ queryKey: ["run"] });
+          void client.invalidateQueries({ queryKey: ["approvals"] });
         }
       }),
     [live, client, id],
@@ -62,6 +72,8 @@ export function AlertDetail() {
   if (alert.error || !alert.data) return <Alert color="red">Cannot load alert {id}: {alert.error?.message}</Alert>;
   const a = alert.data;
   const actionError = ack.error ?? resolve.error;
+  const canRun = a.teams.some((t) => perms.isMember(t));
+  const decidable = new Set((mine.data ?? []).map((x) => x.id));
 
   return (
     <Stack>
@@ -84,7 +96,7 @@ export function AlertDetail() {
           At least one notification for this alert gave up after all retries. Check the notifications below.
         </Alert>
       )}
-      {actionError && <Alert color="red">{actionError.message}</Alert>}
+      <ErrorAlert error={actionError} />
 
       {a.state !== "resolved" && (
         <Card withBorder>
@@ -117,12 +129,43 @@ export function AlertDetail() {
           <Table>
             <Table.Tbody>
               <Row label="Teams" value={a.teams.join(", ")} />
-              <Row label="Rule" value={a.ruleId ?? "deleted"} />
+              <Table.Tr>
+                <Table.Td c="dimmed" w="35%">
+                  Rule
+                </Table.Td>
+                <Table.Td>
+                  {a.ruleId ? (
+                    <Group gap="xs">
+                      <Anchor component={Link} to={`/rules/${a.ruleId}`}>
+                        {a.ruleId}
+                      </Anchor>
+                      <Anchor component={Link} to={`/rules/${a.ruleId}?alert=${a.id}`} size="xs">
+                        test with this alert
+                      </Anchor>
+                    </Group>
+                  ) : (
+                    "deleted"
+                  )}
+                </Table.Td>
+              </Table.Tr>
               <Row label="First seen" value={formatTime(a.firstSeen)} />
               <Row label="Last seen" value={formatTime(a.lastSeen)} />
               {a.ackedBy && <Row label="Acknowledged" value={`${a.ackedBy}, ${formatTime(a.ackedAt)}`} />}
               {a.resolvedAt && (
-                <Row label="Resolved" value={`${a.resolvedHow ?? ""} ${a.resolvedBy ?? ""}, ${formatTime(a.resolvedAt)}`} />
+                <Row label="Resolved" value={`${a.resolvedHow ?? ""}${a.resolvedBy ? ` by ${a.resolvedBy}` : ""}, ${formatTime(a.resolvedAt)}`} />
+              )}
+              {a.resolveNote && <Row label="Resolve note" value={a.resolveNote} />}
+              {a.autoResolveAfter && <Row label="Auto-resolves after" value={`${a.autoResolveAfter} without events`} />}
+              {a.correlationKey && <Row label="Correlation key" value={a.correlationKey} mono />}
+              {a.previousAlertId && (
+                <Table.Tr>
+                  <Table.Td c="dimmed">Previous alert</Table.Td>
+                  <Table.Td>
+                    <Anchor component={Link} to={`/alerts/${a.previousAlertId}`}>
+                      alert {a.previousAlertId}
+                    </Anchor>
+                  </Table.Td>
+                </Table.Tr>
               )}
               {a.fields.map((f) => (
                 <Row key={f.path} label={f.path} value={show(f.value)} mono />
@@ -141,13 +184,20 @@ export function AlertDetail() {
             Runbooks
           </Title>
           {a.runbooks.length === 0 && <Text c="dimmed">No runbook matches this alert.</Text>}
+          {a.runbooks.length > 0 && !canRun && (
+            <Text size="xs" c="dimmed" mb="xs">
+              Only members of {a.teams.join(", ")} can run these steps.
+            </Text>
+          )}
           <Stack gap="md">
             {a.runbooks.map((rb) => (
-              <RunbookPanel key={rb.id} alertId={a.id} runbook={rb} />
+              <RunbookPanel key={rb.id} alertId={a.id} runbook={rb} canRun={canRun} decidable={decidable} />
             ))}
           </Stack>
         </Card>
       </SimpleGrid>
+
+      <ProposeChange alert={a} />
 
       <Card withBorder>
         <Title order={4} mb="xs">
@@ -208,7 +258,107 @@ export function AlertDetail() {
           ))}
         </Stack>
       </Card>
+
+      <Card withBorder>
+        <Title order={4} mb="xs">
+          Events
+        </Title>
+        <details>
+          <summary>
+            <Text span size="sm">
+              First event
+            </Text>
+          </summary>
+          <JsonBlock value={a.firstEvent} />
+        </details>
+        {a.count > 1 && (
+          <details>
+            <summary>
+              <Text span size="sm">
+                Latest event
+              </Text>
+            </summary>
+            <JsonBlock value={a.lastEvent} />
+          </details>
+        )}
+      </Card>
     </Stack>
+  );
+}
+
+/** "Propose fixes" (spec §9): anyone can propose a change of the rule or a runbook; managers decide. */
+function ProposeChange({ alert }: { alert: Detail }) {
+  const client = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const runbookIds = alert.runbooks.map((r) => r.id);
+  const [target, setTarget] = useState<"rule" | "runbook">(alert.ruleId ? "rule" : "runbook");
+  const [runbook, setRunbook] = useState<string | null>(runbookIds[0] ?? null);
+  const [text, setText] = useState("");
+  const send = useMutation({
+    mutationFn: () =>
+      api<Suggestion>(`/alerts/${alert.id}/suggestions`, {
+        json: { target, targetId: target === "rule" ? alert.ruleId : runbook, text: text.trim() },
+      }),
+    onSuccess: () => {
+      setText("");
+      setOpen(false);
+      void client.invalidateQueries({ queryKey: ["timeline", alert.id] });
+      void client.invalidateQueries({ queryKey: ["suggestions"] });
+    },
+  });
+  const targets = [
+    ...(alert.ruleId ? [{ value: "rule", label: "the rule" }] : []),
+    ...(runbookIds.length ? [{ value: "runbook", label: "a runbook" }] : []),
+  ];
+  if (targets.length === 0) return null;
+
+  return (
+    <Card withBorder>
+      <Group justify="space-between">
+        <Title order={4}>Propose a change</Title>
+        {!open && (
+          <Button size="xs" variant="light" onClick={() => setOpen(true)}>
+            Propose a change
+          </Button>
+        )}
+      </Group>
+      {send.isSuccess && !open && (
+        <Text size="sm" c="green" mt={4}>
+          Sent. The team’s managers see it under “Proposed changes”.
+        </Text>
+      )}
+      {open && (
+        <Stack gap="xs" mt="xs">
+          <Group align="end">
+            {targets.length > 1 && <SegmentedControl value={target} onChange={(v) => setTarget(v as "rule" | "runbook")} data={targets} />}
+            {target === "rule" ? (
+              <Text size="sm">
+                Rule <code>{alert.ruleId}</code>
+              </Text>
+            ) : (
+              <Select data={alert.runbooks.map((r) => ({ value: r.id, label: r.title }))} value={runbook} onChange={setRunbook} allowDeselect={false} w={260} />
+            )}
+          </Group>
+          <Textarea
+            placeholder="What should change and why? e.g. “Raise the threshold to 20M — 15M rejections are normal at month end.”"
+            autosize
+            minRows={3}
+            maxLength={5000}
+            value={text}
+            onChange={(e) => setText(e.currentTarget.value)}
+          />
+          <ErrorAlert error={send.error} />
+          <Group>
+            <Button size="xs" onClick={() => send.mutate()} loading={send.isPending} disabled={!text.trim() || (target === "runbook" && !runbook)}>
+              Send proposal
+            </Button>
+            <Button size="xs" variant="default" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+          </Group>
+        </Stack>
+      )}
+    </Card>
   );
 }
 
