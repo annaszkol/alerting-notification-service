@@ -20,10 +20,10 @@ import psycopg
 from psycopg.rows import dict_row
 
 from contracts.notify import notify_alerts_changed
+from libs.conditions import MISSING, get_path, render_live
 from services.api.domain import audit
 from services.api.durations import format_duration
 from services.api.errors import ApiError
-from services.api.stubs import MISSING, get_path, render_live
 
 DEFAULT_STATES = ("open", "acknowledged")
 

@@ -188,3 +188,50 @@ def _validate_ops(ops: dict[str, Any], at: str) -> list[dict[str, str]]:
         elif op == "glob" and not isinstance(arg, str):
             errors.append({"path": f"{at}.{op}", "message": "`glob` needs a string"})
     return errors
+
+
+# --- explanation (rule tester, spec §4 "Tester reguły") ------------------------------------------------
+
+
+def explain(cond: Any, letter: dict[str, Any]) -> dict[str, Any]:
+    """The condition tree with the result of every node (contracts/openapi.yaml `ConditionResult`)."""
+    try:
+        return _explain(cond, letter, 0)
+    except Exception:  # noqa: BLE001 - like evaluate: never throws
+        return {"op": "invalid", "result": False}
+
+
+def _leaf(path: str, op: str, expected: Any, letter: dict[str, Any]) -> dict[str, Any]:
+    actual = get_path(letter, path)
+    node: dict[str, Any] = {"op": op, "path": path, "expected": expected, "missing": actual is MISSING}
+    if actual is not MISSING:
+        node["actual"] = actual
+    node["result"] = _compare(actual, op, expected)
+    return node
+
+
+def _explain(cond: Any, letter: dict[str, Any], depth: int) -> dict[str, Any]:
+    if depth > MAX_DEPTH or not isinstance(cond, dict) or not cond:
+        return {"op": "invalid", "result": False}
+    if set(cond) >= {"field", "op"} and set(cond) <= {"field", "op", "value"}:
+        return _leaf(cond["field"], cond["op"], cond.get("value"), letter)
+    nodes = []
+    for key, value in cond.items():
+        if key in ("all", "any"):
+            children = [_explain(c, letter, depth + 1) for c in value] if isinstance(value, list) else []
+            ok = all(c["result"] for c in children) if key == "all" else any(c["result"] for c in children)
+            nodes.append({"op": key, "result": isinstance(value, list) and ok, "children": children})
+        elif key == "not":
+            child = _explain(value, letter, depth + 1)
+            nodes.append({"op": "not", "result": not child["result"], "children": [child]})
+        elif isinstance(value, dict) and value and set(value) <= OPERATORS:
+            leaves = [_leaf(key, op, arg, letter) for op, arg in value.items()]
+            if len(leaves) == 1:
+                nodes.append(leaves[0])
+            else:
+                nodes.append({"op": "all", "result": all(n["result"] for n in leaves), "children": leaves})
+        else:
+            nodes.append(_leaf(key, "eq", value, letter))
+    if len(nodes) == 1:
+        return nodes[0]
+    return {"op": "all", "result": all(n["result"] for n in nodes), "children": nodes}

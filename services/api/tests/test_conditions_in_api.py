@@ -2,7 +2,7 @@
 
 import pytest
 
-from services.api.stubs import MISSING, get_path, parse_path, render_live, validate_condition
+from libs.conditions import MISSING, get_path, parse_path, render_live, validate_condition
 
 LETTER = {
     "$service": "payments-api",

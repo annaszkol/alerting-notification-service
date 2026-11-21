@@ -37,6 +37,20 @@ def create_rule(doc: Document, conn: Conn, user: CurrentUser) -> dict[str, Any]:
     return rules.create(conn, doc, user.id)
 
 
+@router.post("/rules/test")
+def test_rule(body: Document, conn: Conn, _: CurrentUser) -> dict[str, Any]:
+    """Spec §4 rule tester: works for an unsaved rule, writes nothing."""
+    from services.api import schemas
+    from services.api.domain.tester import test_rule as run_test
+
+    if errors := schemas.errors("RuleTestRequest", body):
+        raise invalid(errors, "test request does not match the contract")
+    if ("event" in body) == ("alertId" in body):
+        raise invalid([{"path": "body", "message": "give exactly one of `event` and `alertId`"}])
+    doc = rules.validate(conn, body["rule"])
+    return run_test(conn, doc, body.get("event"), body.get("alertId"))
+
+
 @router.get("/rules/{ruleId}")
 def get_rule(ruleId: str, conn: Conn, _: CurrentUser) -> dict[str, Any]:
     return rules.to_api(rules.get_row(conn, ruleId))

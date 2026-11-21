@@ -128,3 +128,25 @@ def test_templates_and_validation():
     assert validate_condition({"all": [{"x": {"bogus": 1}}]}) == [
         {"path": "when.all.0.x.bogus", "message": "unknown operator `bogus`"}
     ]
+
+
+def test_explain_mirrors_evaluate():
+    from libs.conditions import explain
+
+    rule = RULES["rates-large-rejections"]["when"]
+    small = {**ex.BUSINESS_EVENT, "payload": {**ex.BUSINESS_EVENT["payload"], "notional": 5000000}}
+    letter = letters(small)[0].letter
+    tree = explain(rule, letter)
+    assert tree["result"] is evaluate(rule, letter) is False
+    schema, desk, notional = tree["children"]
+    assert (schema["op"], schema["actual"], schema["result"]) == ("glob", "trade.rejected.v2", True)
+    assert (desk["op"], desk["expected"], desk["result"]) == ("eq", "rates", True)
+    assert (notional["op"], notional["actual"], notional["expected"], notional["result"]) == (
+        "gt",
+        5000000,
+        10000000,
+        False,
+    )
+    missing = explain({"nope": {"exists": True}}, letter)
+    assert (missing["missing"], missing["result"], "actual" in missing) == (True, False, False)
+    assert explain("garbage", letter)["result"] is False

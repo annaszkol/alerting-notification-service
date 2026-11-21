@@ -10,7 +10,8 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from services.api import schemas, stubs
+from libs import conditions
+from services.api import schemas
 from services.api.domain.config import bump_config_version
 from services.api.durations import format_duration, parse_duration
 from services.api.errors import conflict, invalid, not_found
@@ -40,23 +41,23 @@ def validate(conn: psycopg.Connection, doc: Any) -> dict[str, Any]:
     errors = schemas.errors("RuleInput", doc)
     if errors:
         raise invalid(errors, "rule does not match the contract")
-    errors += stubs.validate_condition(doc["when"], "when")
+    errors += conditions.validate_condition(doc["when"], "when")
     present = doc.get("present") or {}
     for key in ("title", "body"):
         if key in present:
-            errors += stubs.validate_template(present[key], f"present.{key}")
+            errors += conditions.validate_template(present[key], f"present.{key}")
     for i, path in enumerate(present.get("fields") or []):
         try:
-            stubs.parse_path(path)
-        except stubs.PathError as exc:
+            conditions.parse_path(path)
+        except conditions.PathError as exc:
             errors.append({"path": f"present.fields.{i}", "message": str(exc)})
     dedup = doc.get("dedup") or {}
     if dedup.get("mode") == "window" and not dedup.get("window"):
         errors.append({"path": "dedup.window", "message": "window mode needs `window`, e.g. 5m"})
     for i, path in enumerate(dedup.get("key") or []):
         try:
-            stubs.parse_path(path)
-        except stubs.PathError as exc:
+            conditions.parse_path(path)
+        except conditions.PathError as exc:
             errors.append({"path": f"dedup.key.{i}", "message": str(exc)})
     errors += _missing_references(conn, doc)
     if errors:
