@@ -13,6 +13,7 @@ import secrets
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, time
 from typing import Annotated, Any, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import psycopg
 from fastapi import APIRouter, Body, Depends, Query, Response
@@ -405,8 +406,8 @@ def replace_my_preferences(doc: Document, conn: Conn, user: CurrentUser) -> dict
         raise invalid([{"path": "outsideWorkingHours", "message": "working hours need channels for outside them"}])
     if doc.get("timezone"):
         try:
-            zone(doc["timezone"]).key  # noqa: B018 - validates the name
-        except Exception as exc:  # noqa: BLE001
+            ZoneInfo(doc["timezone"])  # zone() would silently fall back to UTC
+        except (ZoneInfoNotFoundError, ValueError) as exc:
             raise invalid([{"path": "timezone", "message": "unknown time zone"}]) from exc
         conn.execute("UPDATE users SET timezone = %s WHERE id = %s", (doc["timezone"], user.id))
     conn.execute(
