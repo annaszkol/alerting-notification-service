@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alerting.local/contracts/route.schema.json",
+  "title": "Rule route (rule.route)",
+  "description": "Who gets notified and on which channels (spec §4 Routing, §6). Consumed by plan_notifications. An empty list means UI feed only.",
+  "type": "array",
+  "items": { "$ref": "#/$defs/routeEntry" },
+  "$defs": {
+    "routeEntry": {
+      "type": "object",
+      "required": ["to"],
+      "additionalProperties": false,
+      "properties": {
+        "to": { "$ref": "#/$defs/recipient" },
+        "channels": {
+          "description": "Omitted = \"preferences\".",
+          "oneOf": [
+            { "$ref": "#/$defs/channelList" },
+            { "$ref": "#/$defs/channelSchedule" },
+            { "const": "preferences" }
+          ]
+        }
+      }
+    },
+    "recipient": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false, "required": ["user"],
+          "properties": { "user": { "$ref": "#/$defs/slug" } }
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["team"],
+          "properties": {
+            "team": { "$ref": "#/$defs/slug" },
+            "role": { "enum": ["manager", "member"] }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["oncall"],
+          "properties": { "oncall": { "$ref": "#/$defs/slug" } }
+        }
+      ]
+    },
+    "channel": { "enum": ["ui", "email", "sms", "phone"] },
+    "channelList": {
+      "type": "array", "items": { "$ref": "#/$defs/channel" }, "minItems": 1, "uniqueItems": true
+    },
+    "channelSchedule": {
+      "description": "Evaluated in the recipient's time zone. First matching window wins, else `otherwise`.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schedule", "otherwise"],
+      "properties": {
+        "schedule": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["between", "use"],
+            "properties": {
+              "between": {
+                "description": "HH:MM-HH:MM, end exclusive; may wrap midnight (22:00-06:00).",
+                "type": "string",
+                "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]-([01][0-9]|2[0-3]):[0-5][0-9]$"
+              },
+              "days": {
+                "description": "Optional ISO weekdays, 1 = Monday. Omitted = every day.",
+                "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 7 }, "uniqueItems": true
+              },
+              "use": { "$ref": "#/$defs/channelList" }
+            }
+          }
+        },
+        "otherwise": {
+          "oneOf": [{ "$ref": "#/$defs/channelList" }, { "type": "array", "maxItems": 0 }]
+        }
+      }
+    },
+    "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]*$" }
+  }
+}
