@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alerting.local/contracts/ws-messages.schema.json",
+  "title": "WebSocket messages",
+  "description": "Messages on /ws (ws-messages.md). `alertSummary` mirrors AlertSummary in openapi.yaml.",
+  "$defs": {
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+    },
+    "severity": {
+      "enum": [
+        "info",
+        "warning",
+        "error",
+        "critical"
+      ]
+    },
+    "state": {
+      "enum": [
+        "open",
+        "acknowledged",
+        "resolved"
+      ]
+    },
+    "filters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "team": {
+          "$ref": "#/$defs/slug"
+        },
+        "user": {
+          "$ref": "#/$defs/slug"
+        },
+        "severity": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/severity"
+          },
+          "uniqueItems": true
+        },
+        "state": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/state"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "owner": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "team"
+          ],
+          "properties": {
+            "team": {
+              "$ref": "#/$defs/slug"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "user"
+          ],
+          "properties": {
+            "user": {
+              "$ref": "#/$defs/slug"
+            }
+          }
+        }
+      ]
+    },
+    "alertSummary": {
+      "type": "object",
+      "required": [
+        "id",
+        "ruleId",
+        "owner",
+        "teams",
+        "state",
+        "severity",
+        "title",
+        "count",
+        "firstSeen",
+        "lastSeen",
+        "hasDeadNotification",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "ruleId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owner": {
+          "$ref": "#/$defs/owner"
+        },
+        "teams": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/slug"
+          }
+        },
+        "state": {
+          "$ref": "#/$defs/state"
+        },
+        "severity": {
+          "$ref": "#/$defs/severity"
+        },
+        "title": {
+          "type": "string"
+        },
+        "color": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "firstSeen": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lastSeen": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "hasDeadNotification": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "clientMessage": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "subscribe"
+            },
+            "filters": {
+              "$ref": "#/$defs/filters"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "pong"
+            }
+          }
+        }
+      ]
+    },
+    "serverMessage": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "alert"
+          ],
+          "properties": {
+            "type": {
+              "const": "alert.upsert"
+            },
+            "alert": {
+              "$ref": "#/$defs/alertSummary"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "filters"
+          ],
+          "properties": {
+            "type": {
+              "const": "subscribed"
+            },
+            "filters": {
+              "$ref": "#/$defs/filters"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "ping"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "reason"
+          ],
+          "properties": {
+            "type": {
+              "const": "resync"
+            },
+            "reason": {
+              "enum": [
+                "listener_reconnected",
+                "slow_consumer"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

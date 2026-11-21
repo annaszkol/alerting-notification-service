@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alerting.local/contracts/notify.schema.json",
+  "title": "NOTIFY payloads",
+  "description": "Payloads of the Postgres NOTIFY channels (notify.md).",
+  "$defs": {
+    "alerts_changed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ids"],
+      "properties": {
+        "ids": { "type": "array", "minItems": 1, "maxItems": 350, "items": { "type": "integer", "minimum": 1 } }
+      }
+    },
+    "config_changed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version"],
+      "properties": { "version": { "type": "integer", "minimum": 1 } }
+    }
+  }
+}
