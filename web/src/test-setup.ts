@@ -20,3 +20,7 @@ class ResizeObserverStub {
   disconnect() {}
 }
 window.ResizeObserver = window.ResizeObserver ?? (ResizeObserverStub as unknown as typeof ResizeObserver);
+
+// The rule and mapping editors are large forms; under a parallel CI run 1 s for findBy* is too tight.
+import { configure } from "@testing-library/react";
+configure({ asyncUtilTimeout: 5000 });

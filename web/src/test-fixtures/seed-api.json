@@ -1,0 +1,961 @@
+{
+ "GET /rules": [
+  {
+   "id": "anna-payments-critical",
+   "owner": {
+    "user": "anna"
+   },
+   "enabled": true,
+   "when": {
+    "all": [
+     {
+      "$service": "payments-api"
+     },
+     {
+      "$severity": "critical"
+     }
+    ]
+   },
+   "route": [
+    {
+     "to": {
+      "user": "anna"
+     },
+     "channels": {
+      "schedule": [
+       {
+        "use": [
+         "sms"
+        ],
+        "between": "08:00-20:00"
+       }
+      ],
+      "otherwise": [
+       "email"
+      ]
+     }
+    }
+   ],
+   "present": {},
+   "dedup": {},
+   "autoResolveAfter": null,
+   "runbooks": [
+    "high-error-rate-payments"
+   ],
+   "updatedBy": "seed",
+   "updatedAt": "2026-11-21T06:08:56.179952+00:00"
+  },
+  {
+   "id": "pricing-warnings",
+   "owner": {
+    "team": "pricing"
+   },
+   "enabled": true,
+   "when": {
+    "all": [
+     {
+      "$service": {
+       "glob": "pricing-engine-*"
+      }
+     },
+     {
+      "$severity": {
+       "gte": "warning"
+      }
+     }
+    ]
+   },
+   "route": [],
+   "present": {
+    "title": "{{instrument}}: {{$count}} ostrze\u017ce\u0144 z pricing-engine",
+    "fields": [
+     "$service",
+     "msg"
+    ]
+   },
+   "dedup": {
+    "key": [
+     "instrument"
+    ],
+    "mode": "window",
+    "window": "5m"
+   },
+   "autoResolveAfter": "30m",
+   "runbooks": [
+    "pricing-latency"
+   ],
+   "updatedBy": "seed",
+   "updatedAt": "2026-11-21T06:08:56.179952+00:00"
+  },
+  {
+   "id": "rates-large-rejections",
+   "owner": {
+    "team": "rates"
+   },
+   "enabled": true,
+   "when": {
+    "all": [
+     {
+      "$schema": {
+       "glob": "trade.rejected.*"
+      }
+     },
+     {
+      "payload.desk": "rates"
+     },
+     {
+      "payload.notional": {
+       "gt": 10000000
+      }
+     }
+    ]
+   },
+   "route": [
+    {
+     "to": {
+      "team": "rates"
+     },
+     "channels": [
+      "email"
+     ]
+    }
+   ],
+   "present": {
+    "title": "Rejected {{payload.currency}} {{payload.notional}} \u2014 {{payload.reason}}"
+   },
+   "dedup": {
+    "key": [
+     "payload.tradeId"
+    ],
+    "mode": "until_resolved"
+   },
+   "autoResolveAfter": null,
+   "runbooks": [],
+   "updatedBy": "seed",
+   "updatedAt": "2026-11-21T06:08:56.179952+00:00"
+  },
+  {
+   "id": "settlements-prod-failures",
+   "owner": {
+    "team": "settlements"
+   },
+   "enabled": true,
+   "when": {
+    "all": [
+     {
+      "type": "WORKFLOW_FAILED"
+     },
+     {
+      "workflowName": "order-settlement"
+     },
+     {
+      "$environment": "prod"
+     }
+    ]
+   },
+   "route": [
+    {
+     "to": {
+      "oncall": "settlements"
+     },
+     "channels": [
+      "phone",
+      "sms"
+     ]
+    }
+   ],
+   "present": {
+    "body": "Step {{step}}: {{error.message}}",
+    "color": "red",
+    "title": "Settlement failed: {{workflowId}}",
+    "fields": [
+     "step",
+     "error.message"
+    ]
+   },
+   "dedup": {
+    "key": [
+     "workflowId"
+    ],
+    "mode": "until_resolved"
+   },
+   "autoResolveAfter": null,
+   "runbooks": [
+    "settlement-timeout"
+   ],
+   "updatedBy": "seed",
+   "updatedAt": "2026-11-21T06:08:56.179952+00:00"
+  }
+ ],
+ "GET /users": [
+  {
+   "id": "admin",
+   "name": "Ada Admin",
+   "email": "admin@example.test",
+   "phone": null,
+   "timezone": "Europe/Warsaw",
+   "isAdmin": true
+  },
+  {
+   "id": "anna",
+   "name": "Anna Kowalska",
+   "email": "anna@example.test",
+   "phone": "+48500000001",
+   "timezone": "Europe/Warsaw",
+   "isAdmin": false
+  },
+  {
+   "id": "bob",
+   "name": "Bob Marsh",
+   "email": "bob@example.test",
+   "phone": "+48500000002",
+   "timezone": "Europe/Warsaw",
+   "isAdmin": false
+  },
+  {
+   "id": "carol",
+   "name": "Carol Diaz",
+   "email": "carol@example.test",
+   "phone": "+48500000003",
+   "timezone": "Europe/Warsaw",
+   "isAdmin": false
+  },
+  {
+   "id": "dave",
+   "name": "Dave Okafor",
+   "email": "dave@example.test",
+   "phone": "+48500000004",
+   "timezone": "Europe/Warsaw",
+   "isAdmin": false
+  },
+  {
+   "id": "erin",
+   "name": "Erin Novak",
+   "email": "erin@example.test",
+   "phone": "+48500000005",
+   "timezone": "Europe/Warsaw",
+   "isAdmin": false
+  },
+  {
+   "id": "frank",
+   "name": "Frank Liu",
+   "email": "frank@example.test",
+   "phone": "+48500000006",
+   "timezone": "Europe/Warsaw",
+   "isAdmin": false
+  },
+  {
+   "id": "grace",
+   "name": "Grace Mensah",
+   "email": "grace@example.test",
+   "phone": "+48500000007",
+   "timezone": "Europe/London",
+   "isAdmin": false
+  },
+  {
+   "id": "henry",
+   "name": "Henry Silva",
+   "email": "henry@example.test",
+   "phone": "+48500000008",
+   "timezone": "Europe/Warsaw",
+   "isAdmin": false
+  },
+  {
+   "id": "ivan",
+   "name": "Ivan Petrov",
+   "email": "ivan@example.test",
+   "phone": "+48500000009",
+   "timezone": "Europe/Warsaw",
+   "isAdmin": false
+  },
+  {
+   "id": "julia",
+   "name": "Julia Park",
+   "email": "julia@example.test",
+   "phone": "+48500000010",
+   "timezone": "America/New_York",
+   "isAdmin": false
+  }
+ ],
+ "GET /teams": [
+  {
+   "id": "counterparty-support",
+   "name": "Counterparty support",
+   "members": [
+    {
+     "userId": "henry",
+     "role": "manager"
+    },
+    {
+     "userId": "ivan",
+     "role": "member"
+    }
+   ]
+  },
+  {
+   "id": "payments",
+   "name": "Payments",
+   "members": [
+    {
+     "userId": "anna",
+     "role": "member"
+    },
+    {
+     "userId": "erin",
+     "role": "manager"
+    }
+   ]
+  },
+  {
+   "id": "pricing",
+   "name": "Pricing",
+   "members": [
+    {
+     "userId": "frank",
+     "role": "member"
+    },
+    {
+     "userId": "grace",
+     "role": "manager"
+    },
+    {
+     "userId": "julia",
+     "role": "member"
+    }
+   ]
+  },
+  {
+   "id": "rates",
+   "name": "Rates",
+   "members": [
+    {
+     "userId": "anna",
+     "role": "member"
+    },
+    {
+     "userId": "bob",
+     "role": "manager"
+    }
+   ]
+  },
+  {
+   "id": "settlements",
+   "name": "Settlements",
+   "members": [
+    {
+     "userId": "carol",
+     "role": "manager"
+    },
+    {
+     "userId": "dave",
+     "role": "member"
+    },
+    {
+     "userId": "erin",
+     "role": "member"
+    }
+   ]
+  }
+ ],
+ "GET /runbooks": [
+  {
+   "id": "high-error-rate-payments",
+   "owner": {
+    "team": "payments"
+   },
+   "title": "High error rate in payments-api",
+   "format": "markdown",
+   "original": "1. Open the payments-api dashboard and check which endpoint fails.\n2. Check recent deploys of payments-api; roll back if one started the errors.\n3. Check the database connection pool (saturation, timeouts).\n4. Post a status update in #payments-incidents.\n",
+   "canonical": {
+    "id": "high-error-rate-payments",
+    "mode": "manual",
+    "owner": {
+     "team": "payments"
+    },
+    "steps": [
+     {
+      "id": "step-1",
+      "kind": "text",
+      "text": "Open the payments-api dashboard and check which endpoint fails."
+     },
+     {
+      "id": "step-2",
+      "kind": "text",
+      "text": "Check recent deploys of payments-api; roll back if one started the errors."
+     },
+     {
+      "id": "step-3",
+      "kind": "text",
+      "text": "Check the database connection pool (saturation, timeouts)."
+     },
+     {
+      "id": "step-4",
+      "kind": "text",
+      "text": "Post a status update in #payments-incidents."
+     },
+     {
+      "id": "step-9",
+      "kind": "action",
+      "action": "notify",
+      "params": {
+       "to": {
+        "oncall": "payments"
+       },
+       "message": "check {{$service}}",
+       "channels": [
+        "sms"
+       ]
+      },
+      "approval": "required",
+      "attempts": 2,
+      "approval_role": "member"
+     }
+    ],
+    "title": "High error rate in payments-api",
+    "format": "markdown"
+   },
+   "mode": "manual",
+   "approvedBy": "erin",
+   "approvedAt": "2026-11-21T06:10:06.711983+00:00",
+   "updatedBy": "erin",
+   "updatedAt": "2026-11-21T06:10:06.700325+00:00"
+  },
+  {
+   "id": "pricing-latency",
+   "owner": {
+    "team": "pricing"
+   },
+   "title": "Pricing engine latency",
+   "format": "checklist",
+   "original": "- [ ] Check quote latency of {{$service}} on the pricing dashboard\n- [ ] Compare with the other pricing-engine instances\n- [ ] If only one instance is slow, drain it from the load balancer\n- [ ] Tell the pricing on-call person what you did\n",
+   "canonical": {
+    "id": "pricing-latency",
+    "mode": "manual",
+    "owner": {
+     "team": "pricing"
+    },
+    "steps": [
+     {
+      "id": "item-1",
+      "kind": "text",
+      "text": "Check quote latency of {{$service}} on the pricing dashboard",
+      "checkbox": true
+     },
+     {
+      "id": "item-2",
+      "kind": "text",
+      "text": "Compare with the other pricing-engine instances",
+      "checkbox": true
+     },
+     {
+      "id": "item-3",
+      "kind": "text",
+      "text": "If only one instance is slow, drain it from the load balancer",
+      "checkbox": true
+     },
+     {
+      "id": "item-4",
+      "kind": "text",
+      "text": "Tell the pricing on-call person what you did",
+      "checkbox": true
+     }
+    ],
+    "format": "checklist"
+   },
+   "mode": "manual",
+   "approvedBy": "grace",
+   "approvedAt": "2026-11-21T06:08:56.179952+00:00",
+   "updatedBy": "seed",
+   "updatedAt": "2026-11-21T06:08:56.179952+00:00"
+  },
+  {
+   "id": "settlement-timeout",
+   "owner": {
+    "team": "settlements"
+   },
+   "title": "Settlement timeout",
+   "format": "yaml",
+   "original": "runbook: settlement-timeout\nmatch: { all: [ { type: WORKFLOW_FAILED }, { error.code: TIMEOUT } ] }\nsteps:\n  - check: \"Is counterparty-service healthy?\"\n    action: http_get\n    url: http://counterparty-service/health\n  - action: retry_workflow\n    params: { workflowId: \"{{workflowId}}\" }\n    if: fails twice\n    then: escalate\n  - action: escalate\n    team: counterparty-support\n    approval: required\n",
+   "canonical": {
+    "id": "settlement-timeout",
+    "mode": "auto",
+    "match": {
+     "all": [
+      {
+       "type": "WORKFLOW_FAILED"
+      },
+      {
+       "error.code": "TIMEOUT"
+      }
+     ]
+    },
+    "owner": {
+     "team": "settlements"
+    },
+    "steps": [
+     {
+      "id": "check-counterparty",
+      "kind": "action",
+      "title": "Is counterparty-service healthy?",
+      "action": "http_get",
+      "params": {
+       "url": "http://counterparty-service/health"
+      },
+      "approval": "none"
+     },
+     {
+      "id": "retry",
+      "kind": "action",
+      "title": "Retry workflow {{workflowId}}",
+      "action": "retry_workflow",
+      "params": {
+       "workflowId": "{{workflowId}}"
+      },
+      "approval": "none",
+      "attempts": 2,
+      "resolves": true,
+      "on_failure": "escalate"
+     },
+     {
+      "id": "escalate",
+      "kind": "action",
+      "title": "Escalate to counterparty-support",
+      "action": "escalate",
+      "params": {
+       "team": "counterparty-support"
+      },
+      "approval": "required"
+     }
+    ],
+    "format": "yaml"
+   },
+   "mode": "auto",
+   "approvedBy": "carol",
+   "approvedAt": "2026-11-21T06:08:56.179952+00:00",
+   "updatedBy": "seed",
+   "updatedAt": "2026-11-21T06:08:56.179952+00:00"
+  }
+ ],
+ "GET /actions": [
+  {
+   "name": "escalate",
+   "description": "Adds the team to the alert and notifies its on-call person (spec \u00a77).",
+   "paramsSchema": {
+    "type": "object",
+    "required": [
+     "team"
+    ],
+    "properties": {
+     "team": {
+      "type": "string"
+     }
+    }
+   },
+   "minApproval": "none"
+  },
+  {
+   "name": "http_get",
+   "description": "",
+   "paramsSchema": {
+    "type": "object",
+    "required": [
+     "url"
+    ],
+    "properties": {
+     "url": {
+      "type": "string",
+      "title": "URL (allowlisted host)"
+     }
+    }
+   },
+   "minApproval": "none"
+  },
+  {
+   "name": "notify",
+   "description": "Sends a message about the alert to a recipient (same format as rule routes).",
+   "paramsSchema": {
+    "type": "object",
+    "required": [
+     "to",
+     "message"
+    ],
+    "properties": {
+     "to": {
+      "type": "object",
+      "title": "Recipient: {user}, {team}, {oncall} or {team, role}"
+     },
+     "message": {
+      "type": "string"
+     },
+     "channels": {
+      "type": "array",
+      "items": {
+       "enum": [
+        "ui",
+        "email",
+        "sms",
+        "phone"
+       ]
+      }
+     }
+    }
+   },
+   "minApproval": "none"
+  },
+  {
+   "name": "open_ticket",
+   "description": "",
+   "paramsSchema": {
+    "type": "object",
+    "required": [
+     "title"
+    ],
+    "properties": {
+     "title": {
+      "type": "string"
+     },
+     "description": {
+      "type": "string"
+     }
+    }
+   },
+   "minApproval": "none"
+  },
+  {
+   "name": "restart_service",
+   "description": "",
+   "paramsSchema": {
+    "type": "object",
+    "required": [
+     "service"
+    ],
+    "properties": {
+     "service": {
+      "type": "string"
+     }
+    }
+   },
+   "minApproval": "required"
+  },
+  {
+   "name": "retry_workflow",
+   "description": "",
+   "paramsSchema": {
+    "type": "object",
+    "required": [
+     "workflowId"
+    ],
+    "properties": {
+     "workflowId": {
+      "type": "string"
+     }
+    }
+   },
+   "minApproval": "none"
+  },
+  {
+   "name": "webhook",
+   "description": "",
+   "paramsSchema": {
+    "type": "object",
+    "required": [
+     "url"
+    ],
+    "properties": {
+     "url": {
+      "type": "string",
+      "title": "URL (allowlisted host)"
+     },
+     "body": {
+      "type": "object",
+      "title": "JSON body"
+     }
+    }
+   },
+   "minApproval": "required"
+  }
+ ],
+ "GET /oncall": [
+  {
+   "teamId": "counterparty-support",
+   "rotation": [
+    "ivan",
+    "henry"
+   ],
+   "shiftLength": "1d",
+   "handoffTime": "09:00",
+   "timezone": "Europe/Warsaw",
+   "startsOn": "2026-11-02",
+   "currentUserId": "ivan",
+   "currentUntil": "2026-11-21T09:00:00+01:00"
+  },
+  {
+   "teamId": "payments",
+   "rotation": [
+    "erin",
+    "anna"
+   ],
+   "shiftLength": "1d",
+   "handoffTime": "09:00",
+   "timezone": "Europe/Warsaw",
+   "startsOn": "2026-11-02",
+   "currentUserId": "erin",
+   "currentUntil": "2026-11-21T09:00:00+01:00"
+  },
+  {
+   "teamId": "pricing",
+   "rotation": [
+    "frank",
+    "julia",
+    "grace"
+   ],
+   "shiftLength": "7d",
+   "handoffTime": "10:00",
+   "timezone": "Europe/London",
+   "startsOn": "2026-11-02",
+   "currentUserId": "grace",
+   "currentUntil": "2026-11-23T10:00:00+00:00"
+  },
+  {
+   "teamId": "rates",
+   "rotation": [
+    "bob",
+    "anna"
+   ],
+   "shiftLength": "7d",
+   "handoffTime": "09:00",
+   "timezone": "UTC",
+   "startsOn": "2026-11-21",
+   "currentUserId": "anna",
+   "currentUntil": "2026-11-21T09:00:00+00:00"
+  },
+  {
+   "teamId": "settlements",
+   "rotation": [
+    "dave",
+    "carol",
+    "erin"
+   ],
+   "shiftLength": "1d",
+   "handoffTime": "09:00",
+   "timezone": "Europe/Warsaw",
+   "startsOn": "2026-11-02",
+   "currentUserId": "dave",
+   "currentUntil": "2026-11-21T09:00:00+01:00"
+  }
+ ],
+ "GET /suggestions": [],
+ "GET /mappings": [
+  {
+   "id": "workflow-event",
+   "priority": 10,
+   "sources": [],
+   "fields": {
+    "$schema": {
+     "const": "workflow"
+    },
+    "$service": "workflowName",
+    "$summary": "{{workflowName}} / {{step}}: {{error.message}}",
+    "$severity": {
+     "map": {
+      "INFO": "info",
+      "WARN": "warning",
+      "ERROR": "error",
+      "CRITICAL": "critical"
+     },
+     "from": "severity"
+    },
+    "$eventTime": {
+     "from": "timestamp",
+     "format": "iso8601"
+    },
+    "$environment": "environment",
+    "$correlationKey": "{{workflowId}}"
+   },
+   "schemaFrom": null,
+   "splitOn": null,
+   "detect": {
+    "all": [
+     {
+      "type": {
+       "exists": true
+      }
+     },
+     {
+      "workflowId": {
+       "exists": true
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "metric-alert",
+   "priority": 20,
+   "sources": [],
+   "fields": {
+    "$schema": {
+     "const": "metric-alert"
+    },
+    "$status": {
+     "map": {
+      "firing": "firing",
+      "resolved": "resolved"
+     },
+     "from": "status"
+    },
+    "$service": "labels.service",
+    "$summary": "{{alertname}}: {{annotations.summary}}",
+    "$instance": "labels.instance",
+    "$severity": {
+     "map": {
+      "info": "info",
+      "warning": "warning",
+      "critical": "critical"
+     },
+     "from": "labels.severity"
+    },
+    "$eventTime": {
+     "from": "startsAt",
+     "format": "iso8601"
+    },
+    "$environment": "labels.environment",
+    "$correlationKey": "{{alertname}}|{{labels.service}}|{{labels.region}}"
+   },
+   "schemaFrom": null,
+   "splitOn": "alerts",
+   "detect": {
+    "any": [
+     {
+      "alertname": {
+       "exists": true
+      }
+     },
+     {
+      "alerts": {
+       "exists": true
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "business-event",
+   "priority": 30,
+   "sources": [],
+   "fields": {
+    "$service": "meta.producer",
+    "$summary": "Trade {{payload.tradeId}} rejected: {{payload.reason}}",
+    "$eventTime": {
+     "from": "meta.ts",
+     "format": "epoch_ms"
+    },
+    "$correlationKey": "{{payload.tradeId}}"
+   },
+   "schemaFrom": "meta.schema",
+   "splitOn": null,
+   "detect": {
+    "meta.schema": {
+     "exists": true
+    }
+   }
+  },
+  {
+   "id": "pricing-log",
+   "priority": 40,
+   "sources": [
+    "pricing-logs"
+   ],
+   "fields": {
+    "$service": "service",
+    "$summary": "{{service}} [{{instrument}}]: {{msg}}",
+    "$severity": {
+     "map": {
+      "INFO": "info",
+      "WARN": "warning",
+      "DEBUG": "info",
+      "ERROR": "error"
+     },
+     "from": "level"
+    },
+    "$eventTime": {
+     "from": "ts",
+     "format": "iso8601"
+    }
+   },
+   "schemaFrom": null,
+   "splitOn": null,
+   "detect": {
+    "level": {
+     "exists": true
+    }
+   }
+  }
+ ],
+ "GET /sources": [
+  {
+   "id": "http-default",
+   "type": "http",
+   "config": {},
+   "parser": "json",
+   "defaultSeverity": "info",
+   "enabled": true
+  },
+  {
+   "id": "monitoring",
+   "type": "http",
+   "config": {},
+   "parser": "json",
+   "defaultSeverity": "warning",
+   "enabled": true
+  },
+  {
+   "id": "pricing-logs",
+   "type": "logfile",
+   "config": {
+    "path": "/var/log/pricing/pricing-engine.log"
+   },
+   "parser": "logfmt",
+   "defaultSeverity": "info",
+   "enabled": true
+  },
+  {
+   "id": "trades",
+   "type": "http",
+   "config": {},
+   "parser": "json",
+   "defaultSeverity": "info",
+   "enabled": true
+  },
+  {
+   "id": "workflows",
+   "type": "http",
+   "config": {},
+   "parser": "json",
+   "defaultSeverity": "info",
+   "enabled": true
+  },
+  {
+   "id": "workflows-kafka",
+   "type": "kafka",
+   "config": {
+    "topic": "workflow-events"
+   },
+   "parser": "json",
+   "defaultSeverity": "info",
+   "enabled": true
+  }
+ ],
+ "GET /unmapped": [],
+ "GET /approvals": [],
+ "GET /preferences/me": {
+  "timezone": "Europe/Warsaw",
+  "workingHours": null,
+  "bySeverity": {
+   "critical": [
+    "phone",
+    "sms"
+   ]
+  }
+ }
+}

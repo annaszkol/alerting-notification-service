@@ -1,11 +1,12 @@
 // Approvals waiting for me (spec §7: a step that needs approval waits for someone with the required role).
-import { Alert, Anchor, Badge, Button, Group, Loader, SegmentedControl, Stack, Table, Text, Title } from "@mantine/core";
+import { Anchor, Badge, Button, Group, Loader, SegmentedControl, Stack, Table, Text, Title } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api, queryString } from "../api/client";
 import type { Approval } from "../api/types";
+import { ErrorAlert } from "../components/ErrorAlert";
 import { relativeTime } from "../components/time";
 
 export function Approvals() {
@@ -17,6 +18,13 @@ export function Approvals() {
       api<Approval[]>(`/approvals${queryString({ status: "pending", mine: scope === "mine" ? "true" : null })}`),
     refetchInterval: 5000,
   });
+  // "All pending" also lists approvals that need someone else's role; only mine get buttons
+  const mine = useQuery({
+    queryKey: ["approvals", "mine"],
+    queryFn: () => api<Approval[]>(`/approvals${queryString({ status: "pending", mine: "true" })}`),
+    refetchInterval: 5000,
+  });
+  const decidable = new Set((mine.data ?? []).map((a) => a.id));
   const decide = useMutation({
     mutationFn: ({ id, decision }: { id: number; decision: "approve" | "reject" }) =>
       api<Approval>(`/approvals/${id}/${decision}`, { method: "POST" }),
@@ -36,9 +44,9 @@ export function Approvals() {
           ]}
         />
       </Group>
-      {decide.error && <Alert color="red">{decide.error.message}</Alert>}
+      <ErrorAlert error={decide.error ?? list.error} />
       {list.isLoading && <Loader />}
-      {list.data?.length === 0 && <Text c="dimmed">Nothing waits for approval.</Text>}
+      {list.data?.length === 0 && <Text c="dimmed">{scope === "mine" ? "Nothing waits for your approval." : "Nothing waits for approval."}</Text>}
       {!!list.data?.length && (
         <Table.ScrollContainer minWidth={640}>
           <Table verticalSpacing="xs">
@@ -67,14 +75,20 @@ export function Approvals() {
                   </Table.Td>
                   <Table.Td>{relativeTime(a.createdAt)}</Table.Td>
                   <Table.Td>
-                    <Group gap="xs" justify="end" wrap="nowrap">
-                      <Button size="xs" color="grape" onClick={() => decide.mutate({ id: a.id, decision: "approve" })}>
-                        Approve
-                      </Button>
-                      <Button size="xs" variant="light" color="red" onClick={() => decide.mutate({ id: a.id, decision: "reject" })}>
-                        Reject
-                      </Button>
-                    </Group>
+                    {decidable.has(a.id) ? (
+                      <Group gap="xs" justify="end" wrap="nowrap">
+                        <Button size="xs" color="grape" loading={decide.isPending && decide.variables?.id === a.id && decide.variables.decision === "approve"} onClick={() => decide.mutate({ id: a.id, decision: "approve" })}>
+                          Approve
+                        </Button>
+                        <Button size="xs" variant="light" color="red" loading={decide.isPending && decide.variables?.id === a.id && decide.variables.decision === "reject"} onClick={() => decide.mutate({ id: a.id, decision: "reject" })}>
+                          Reject
+                        </Button>
+                      </Group>
+                    ) : (
+                      <Text size="xs" c="dimmed" ta="right">
+                        needs a {a.requiredRole} of {a.team}
+                      </Text>
+                    )}
                   </Table.Td>
                 </Table.Tr>
               ))}
