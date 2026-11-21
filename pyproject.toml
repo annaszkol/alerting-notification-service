@@ -47,4 +47,4 @@ select = ["E", "F", "W", "I", "B", "UP"]
 [tool.ruff.lint.per-file-ignores]
 # Spec examples kept verbatim (YAML from docs/specs.md §3, §4).
 "libs/conditions/spec_examples.py" = ["E501"]
-"libs/conditions/tests/*" = ["E501"]
+"**/tests/*" = ["E501"]  # long literal expectations read better on one line

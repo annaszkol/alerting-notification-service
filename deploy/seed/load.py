@@ -26,7 +26,8 @@ from psycopg.types.json import Jsonb
 log = logging.getLogger("seed")
 
 SEED_DIR = Path(__file__).parent
-DEFAULT_FILES = [SEED_DIR / "people.yaml", SEED_DIR / "runbooks.yaml"]
+DEFAULT_FILES = [SEED_DIR / "people.yaml", SEED_DIR / "runbooks.yaml", SEED_DIR / "config.yaml"]
+DEV_INGEST_TOKEN = "dev-ingest-token"  # local demo default; set SEED_INGEST_TOKEN outside demos
 
 SLUG = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
 DURATION = re.compile(r"^(\d+)([smhdw])$")
@@ -49,13 +50,16 @@ def parse_duration(value: str) -> timedelta:
 
 
 def load_files(paths: list[Path]) -> dict[str, Any]:
-    merged: dict[str, Any] = {"users": [], "teams": [], "preferences": {}, "runbooks": []}
+    merged: dict[str, Any] = {
+        "users": [], "teams": [], "preferences": {}, "runbooks": [], "sources": [], "mappings": [], "rules": []
+    }  # fmt: skip
     for path in paths:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         merged["users"] += data.get("users", [])
         merged["teams"] += data.get("teams", [])
         merged["preferences"].update(data.get("preferences", {}))
-        merged["runbooks"] += data.get("runbooks", [])
+        for key in ("runbooks", "sources", "mappings", "rules"):
+            merged[key] += data.get(key, [])
     return merged
 
 
@@ -141,7 +145,41 @@ def validate(data: Mapping[str, Any]) -> list[str]:
             errors.append(f"preferences for unknown user {user!r}")
         _check_preferences(prefs, f"user {user}", errors)
     _check_runbooks(data, errors)
+    _check_config(data, errors)
     return errors
+
+
+def _check_config(data: Mapping[str, Any], errors: list[str]) -> None:
+    from libs.conditions import validate_condition, validate_template
+
+    users = {u.get("id") for u in data["users"]}
+    teams = {t.get("id") for t in data["teams"]}
+    runbooks = {r.get("id") for r in data.get("runbooks", [])}
+    sources = {s.get("id") for s in data.get("sources", [])}
+    for source in data.get("sources", []):
+        if source.get("type") not in ("http", "kafka", "logfile"):
+            errors.append(f"source {source.get('id')}: unknown type {source.get('type')!r}")
+        if source.get("parser", "json") not in ("json", "logfmt", "regex"):
+            errors.append(f"source {source.get('id')}: unknown parser {source.get('parser')!r}")
+    for mapping in data.get("mappings", []):
+        name = mapping.get("name")
+        if mapping.get("detect") is not None:
+            detect_errors = validate_condition(mapping["detect"], "detect")
+            errors += [f"mapping {name}: {e['path']}: {e['message']}" for e in detect_errors]
+        for source in mapping.get("sources") or []:
+            if source not in sources:
+                errors.append(f"mapping {name}: unknown source {source!r}")
+    for rule in data.get("rules", []):
+        rid, owner = rule.get("id"), rule.get("owner") or {}
+        if ("team" in owner and owner["team"] not in teams) or ("user" in owner and owner["user"] not in users):
+            errors.append(f"rule {rid}: unknown owner {owner}")
+        errors += [f"rule {rid}: {e['path']}: {e['message']}" for e in validate_condition(rule.get("when"))]
+        for key in ("title", "body"):
+            if key in (rule.get("present") or {}):
+                errors += [f"rule {rid}: {e['message']}" for e in validate_template(rule["present"][key], key)]
+        for runbook in rule.get("runbooks", []):
+            if runbook not in runbooks:
+                errors.append(f"rule {rid}: unknown runbook {runbook!r}")
 
 
 def _check_runbooks(data: Mapping[str, Any], errors: list[str]) -> None:
@@ -254,7 +292,51 @@ def apply(conn: psycopg.Connection, data: Mapping[str, Any], reset: bool = False
             approved_by=runbook.get("approved_by"),
             reset=reset,
         )
+    written.update(_apply_config(conn, data, reset))
+    if written.get("sources") or written.get("mappings") or written.get("rules"):
+        from contracts.notify import CONFIG_CHANGED, config_changed_payload
+
+        version = conn.execute("UPDATE config_version SET version = version + 1 RETURNING version").fetchone()[0]
+        conn.execute("SELECT pg_notify(%s, %s)", (CONFIG_CHANGED, config_changed_payload(version)))
     return written
+
+
+def _apply_config(conn: psycopg.Connection, data: Mapping[str, Any], reset: bool) -> dict[str, int]:
+    import hashlib
+
+    token = os.environ.get("SEED_INGEST_TOKEN") or DEV_INGEST_TOKEN
+    token_sha = hashlib.sha256(token.encode()).hexdigest()
+    counts = {"sources": 0, "mappings": 0, "rules": 0}
+
+    def write(table: str, key: str, columns: dict[str, Any]) -> None:
+        names = ", ".join(f'"{c}"' for c in columns)
+        values = ", ".join(f"%({c})s" for c in columns)
+        update = ", ".join(f'"{c}" = EXCLUDED."{c}"' for c in columns if c != "id")
+        conflict = f"DO UPDATE SET {update}" if reset else "DO NOTHING"
+        sql = f"INSERT INTO {table} ({names}) VALUES ({values}) ON CONFLICT (id) {conflict}"
+        counts[key] += conn.execute(sql, columns).rowcount
+
+    for s in data.get("sources", []):
+        write("sources", "sources", {
+            "id": s["id"], "type": s["type"], "config": Jsonb(s.get("config", {})), "parser": s.get("parser", "json"),
+            "parser_config": Jsonb(s.get("parser_config", {})), "default_severity": s.get("default_severity", "info"),
+            "token_sha256": token_sha if s["type"] == "http" else None, "updated_by": "seed",
+        })  # fmt: skip
+    for m in data.get("mappings", []):
+        write("schema_mappings", "mappings", {
+            "id": m["name"], "priority": m.get("priority", 100), "source_ids": m.get("sources"),
+            "detect": Jsonb(m.get("detect")), "schema_from": m.get("schemaFrom"), "split_on": m.get("splitOn"),
+            "fields": Jsonb(m.get("fields", {})), "updated_by": "seed",
+        })  # fmt: skip
+    for r in data.get("rules", []):
+        after = r.get("autoResolveAfter")
+        write("rules", "rules", {
+            "id": r["id"], "owner": Jsonb(r["owner"]), "when": Jsonb(r["when"]), "route": Jsonb(r.get("route", [])),
+            "present": Jsonb(r.get("present", {})), "dedup": Jsonb(r.get("dedup", {})),
+            "auto_resolve_after": parse_duration(after) if after else None, "runbook_ids": r.get("runbooks", []),
+            "updated_by": "seed",
+        })  # fmt: skip
+    return counts
 
 
 def main(argv: list[str] | None = None) -> int:

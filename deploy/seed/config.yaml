@@ -1,0 +1,89 @@
+# Demo sources, schema mappings and rules (spec §3, §4). Mappings and rules are the spec's own examples; rules link
+# the demo runbooks (deploy/seed/runbooks.yaml). HTTP sources accept the ingest token from SEED_INGEST_TOKEN
+# (stored hashed); see .env.example.
+
+sources:
+  - { id: http-default, type: http, parser: json }
+  - { id: workflows, type: http, parser: json }
+  - { id: monitoring, type: http, parser: json, default_severity: warning }
+  - { id: trades, type: http, parser: json }
+  - { id: pricing-logs, type: logfile, parser: logfmt, config: { path: /var/log/pricing/pricing-engine.log } }
+
+mappings:
+  - name: workflow-event
+    priority: 10
+    detect: { all: [ { type: { exists: true } }, { workflowId: { exists: true } } ] }
+    fields:
+      $schema: { const: workflow }
+      $service: workflowName
+      $environment: environment
+      $severity: { from: severity, map: { INFO: info, WARN: warning, ERROR: error, CRITICAL: critical } }
+      $eventTime: { from: timestamp, format: iso8601 }
+      $summary: "{{workflowName}} / {{step}}: {{error.message}}"
+      $correlationKey: "{{workflowId}}"
+
+  - name: metric-alert
+    priority: 20
+    detect: { any: [ { alertname: { exists: true } }, { alerts: { exists: true } } ] }
+    splitOn: alerts
+    fields:
+      $schema: { const: metric-alert }
+      $service: labels.service
+      $instance: labels.instance
+      $environment: labels.environment
+      $severity: { from: labels.severity, map: { info: info, warning: warning, critical: critical } }
+      $status: { from: status, map: { firing: firing, resolved: resolved } }
+      $eventTime: { from: startsAt, format: iso8601 }
+      $summary: "{{alertname}}: {{annotations.summary}}"
+      $correlationKey: "{{alertname}}|{{labels.service}}|{{labels.region}}"
+
+  - name: business-event
+    priority: 30
+    detect: { meta.schema: { exists: true } }
+    schemaFrom: meta.schema
+    fields:
+      $service: meta.producer
+      $eventTime: { from: meta.ts, format: epoch_ms }
+      $summary: "Trade {{payload.tradeId}} rejected: {{payload.reason}}"
+      $correlationKey: "{{payload.tradeId}}"
+
+  - name: pricing-log
+    priority: 40
+    sources: [pricing-logs]
+    detect: { level: { exists: true } }
+    fields:
+      $service: service
+      $severity: { from: level, map: { DEBUG: info, INFO: info, WARN: warning, ERROR: error } }
+      $eventTime: { from: ts, format: iso8601 }
+      $summary: "{{service}} [{{instrument}}]: {{msg}}"
+
+rules:
+  - id: settlements-prod-failures
+    owner: { team: settlements }
+    when: { all: [ { type: WORKFLOW_FAILED }, { workflowName: order-settlement }, { $environment: prod } ] }
+    route: [ { to: { oncall: settlements }, channels: [phone, sms] } ]
+    present: { title: "Settlement failed: {{workflowId}}", body: "Step {{step}}: {{error.message}}", fields: [step, error.message], color: red }
+    dedup: { key: [workflowId], mode: until_resolved }
+    runbooks: [settlement-timeout]
+
+  - id: pricing-warnings
+    owner: { team: pricing }
+    when: { all: [ { $service: { glob: "pricing-engine-*" } }, { $severity: { gte: warning } } ] }
+    route: []
+    present: { title: "{{instrument}}: {{$count}} ostrzeżeń z pricing-engine", fields: [$service, msg] }
+    dedup: { key: [instrument], mode: window, window: 5m }
+    autoResolveAfter: 30m
+    runbooks: [pricing-latency]
+
+  - id: rates-large-rejections
+    owner: { team: rates }
+    when: { all: [ { $schema: { glob: "trade.rejected.*" } }, { payload.desk: rates }, { payload.notional: { gt: 10000000 } } ] }
+    route: [ { to: { team: rates }, channels: [email] } ]
+    present: { title: "Rejected {{payload.currency}} {{payload.notional}} — {{payload.reason}}" }
+    dedup: { key: [payload.tradeId], mode: until_resolved }
+
+  - id: anna-payments-critical
+    owner: { user: anna }
+    when: { all: [ { $service: payments-api }, { $severity: critical } ] }
+    route: [ { to: { user: anna }, channels: { schedule: [ { between: "08:00-20:00", use: [sms] } ], otherwise: [email] } } ]
+    runbooks: [high-error-rate-payments]
