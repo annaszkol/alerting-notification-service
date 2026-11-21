@@ -14,11 +14,13 @@ import time
 
 import psycopg
 
+from libs import metrics
 from services.processor import config as config_store
-from services.processor.consumer import decode, handle
+from services.processor.consumer import decode, handle, record_lag
 
 log = logging.getLogger("processor")
 CONFIG_POLL_SECONDS = 5  # spec §4: processors also poll config_version every 5 s
+LAG_SECONDS = 5  # how often the consumer lag gauge is refreshed
 
 
 def main() -> None:
@@ -39,6 +41,7 @@ def main() -> None:
         auto_offset_reset="earliest",
         max_poll_records=int(os.environ.get("PROCESSOR_BATCH", "500")),
     )
+    metrics.serve("processor")
     with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
         while not stop.is_set() and not config_store.tables_ready(conn):
             log.warning("waiting for A's tables (%s); not reading Kafka yet", ", ".join(config_store.REQUIRED_TABLES))
@@ -46,9 +49,12 @@ def main() -> None:
             stop.wait(30)
         config = config_store.load(conn)
         conn.commit()
-        checked = time.monotonic()
+        checked = lag_at = time.monotonic()
         log.info("processor started")
         while not stop.is_set():
+            if time.monotonic() - lag_at >= LAG_SECONDS:
+                record_lag(consumer)
+                lag_at = time.monotonic()
             if time.monotonic() - checked >= CONFIG_POLL_SECONDS:
                 if config_store.current_version(conn) != config.version:
                     config = config_store.load(conn)

@@ -32,6 +32,7 @@ from contracts.delivery import (
     SendResult,
     SendStatus,
 )
+from libs import metrics
 from services.delivery.channels import registry
 from services.delivery.messages import fill_live_fields, phone_text, sms_text
 
@@ -43,6 +44,14 @@ MAX_ATTEMPTS = 10
 BACKOFF_BASE = timedelta(seconds=5)
 BACKOFF_CAP = timedelta(minutes=5)
 SEND_CONCURRENCY = 20
+
+
+async def refresh_queue(conn: psycopg.AsyncConnection) -> None:
+    """Set the notifications_queue gauge from Postgres (every instance reports the same totals)."""
+    cur = await conn.execute("SELECT status, count(*) FROM notifications GROUP BY status")
+    counts = {status: n for status, n in await cur.fetchall()}
+    for status in metrics.NOTIFICATION_STATUSES:
+        metrics.NOTIFICATION_QUEUE.labels(status).set(counts.get(status, 0))
 
 
 def backoff(attempts: int) -> timedelta:
@@ -248,6 +257,7 @@ class DeliveryWorker:
         outcomes = [(row, decide(result, row.attempts, done_at)) for row, result in zip(rows, results, strict=True)]
         await complete(self.conn, outcomes)
         for row, outcome in outcomes:
+            metrics.DELIVERY_ATTEMPTS.labels(row.channel, outcome.status).inc()
             if outcome.status != "sent":
                 log.warning("notification %s (%s) -> %s: %s", row.id, row.channel, outcome.status, outcome.last_error)
         return len(rows)
