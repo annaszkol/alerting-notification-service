@@ -8,7 +8,7 @@ on:
       scenarios: { description: "space-separated scenarios", default: "unique burst outage kill scale" }
   push:
     branches-ignore: [main]
-    paths: ["loadtest/**", ".github/workflows/loadtest.yml"]
+    paths: ["loadtest/*.py", "loadtest/*.sh", ".github/workflows/loadtest.yml"]  # not on results / README
 
 jobs:
   loadtest:

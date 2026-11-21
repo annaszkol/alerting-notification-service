@@ -1,0 +1,16 @@
+{
+  "name": "scale-4",
+  "run": "24559b6a",
+  "via": "kafka",
+  "targetRate": 0.0,
+  "dup": 1,
+  "events": 20000,
+  "accepted": 20000,
+  "rejected": 0,
+  "sendSeconds": 2.57,
+  "achievedRate": 7788.5,
+  "expectedAlerts": 20000,
+  "deliveredAlerts": 0,
+  "latencyMs": {},
+  "faults": []
+}
