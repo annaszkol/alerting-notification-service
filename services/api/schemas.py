@@ -24,9 +24,7 @@ def openapi() -> dict[str, Any]:
 
 @cache
 def registry() -> Registry:
-    resources = [
-        (BASE + "openapi.yaml", Resource.from_contents(openapi(), default_specification=DRAFT202012))
-    ]
+    resources = [(BASE + "openapi.yaml", Resource.from_contents(openapi(), default_specification=DRAFT202012))]
     for name in JSON_SCHEMAS:
         doc = json.loads((CONTRACTS / name).read_text(encoding="utf-8"))
         resources.append((BASE + name, Resource.from_contents(doc)))
@@ -36,9 +34,7 @@ def registry() -> Registry:
 @cache
 def validator(name: str) -> Draft202012Validator:
     """Validator for `components.schemas.<name>` of openapi.yaml."""
-    return Draft202012Validator(
-        {"$ref": f"{BASE}openapi.yaml#/components/schemas/{name}"}, registry=registry()
-    )
+    return Draft202012Validator({"$ref": f"{BASE}openapi.yaml#/components/schemas/{name}"}, registry=registry())
 
 
 def errors(name: str, document: Any) -> list[dict[str, str]]:

@@ -104,9 +104,7 @@ def decode_cursor(cursor: str) -> tuple[datetime, int]:
         last_seen, alert_id = json.loads(base64.urlsafe_b64decode(padded))
         return datetime.fromisoformat(last_seen), int(alert_id)
     except (ValueError, TypeError, binascii.Error) as exc:
-        raise ApiError(
-            "invalid", "invalid cursor", [{"path": "cursor", "message": "invalid cursor"}]
-        ) from exc
+        raise ApiError("invalid", "invalid cursor", [{"path": "cursor", "message": "invalid cursor"}]) from exc
 
 
 def list_alerts(

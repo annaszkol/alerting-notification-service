@@ -93,10 +93,7 @@ def test_member_cannot_edit_disable_or_delete_team_rule(client, login):
     headers = login("mia")
     changed = {**RATES_RULE, "present": {"title": "x"}}
     assert client.put(f"/api/rules/{RATES_RULE['id']}", json=changed, headers=headers).status_code == 403
-    assert (
-        client.patch(f"/api/rules/{RATES_RULE['id']}", json={"enabled": False}, headers=headers).status_code
-        == 403
-    )
+    assert client.patch(f"/api/rules/{RATES_RULE['id']}", json={"enabled": False}, headers=headers).status_code == 403
     assert client.delete(f"/api/rules/{RATES_RULE['id']}", headers=headers).status_code == 403
 
 
@@ -182,9 +179,7 @@ def test_replace_updates_document_and_bumps(client, login, conn, listener):
 
 def test_replace_cannot_change_id(client, login):
     client.post("/api/rules", json=RATES_RULE, headers=login("marek"))
-    response = client.put(
-        f"/api/rules/{RATES_RULE['id']}", json={**RATES_RULE, "id": "other"}, headers=login("marek")
-    )
+    response = client.put(f"/api/rules/{RATES_RULE['id']}", json={**RATES_RULE, "id": "other"}, headers=login("marek"))
     assert response.status_code == 422
 
 
@@ -193,10 +188,7 @@ def test_disable_and_delete(client, login, conn):
     client.post("/api/rules", json=RATES_RULE, headers=headers)
     response = client.patch(f"/api/rules/{RATES_RULE['id']}", json={"enabled": False}, headers=headers)
     assert response.status_code == 200 and response.json()["enabled"] is False
-    assert (
-        client.patch(f"/api/rules/{RATES_RULE['id']}", json={"enabled": "no"}, headers=headers).status_code
-        == 422
-    )
+    assert client.patch(f"/api/rules/{RATES_RULE['id']}", json={"enabled": "no"}, headers=headers).status_code == 422
     assert client.delete(f"/api/rules/{RATES_RULE['id']}", headers=headers).status_code == 204
     assert client.get(f"/api/rules/{RATES_RULE['id']}", headers=headers).status_code == 404
     assert config_version(conn) == 4  # create, disable, delete
@@ -205,9 +197,7 @@ def test_disable_and_delete(client, login, conn):
 def test_unknown_rule_is_404(client, login):
     headers = login("admin")
     assert client.get("/api/rules/nope", headers=headers).status_code == 404
-    assert (
-        client.put("/api/rules/nope", json={**RATES_RULE, "id": "nope"}, headers=headers).status_code == 404
-    )
+    assert client.put("/api/rules/nope", json={**RATES_RULE, "id": "nope"}, headers=headers).status_code == 404
     assert client.delete("/api/rules/nope", headers=headers).status_code == 404
 
 

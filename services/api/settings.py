@@ -26,9 +26,7 @@ class Settings:
             log.warning("JWT_SECRET is not set; using an insecure development secret")
             secret = DEV_JWT_SECRET
         return cls(
-            database_url=os.environ.get(
-                "DATABASE_URL", "postgresql://alerting:alerting@localhost:5432/alerting"
-            ),
+            database_url=os.environ.get("DATABASE_URL", "postgresql://alerting:alerting@localhost:5432/alerting"),
             jwt_secret=secret,
             jwt_ttl_seconds=int(os.environ.get("JWT_TTL_SECONDS", 12 * 3600)),
             public_base_url=os.environ.get("PUBLIC_BASE_URL", "http://localhost:3000").rstrip("/"),

@@ -46,18 +46,14 @@ class Principal:
 def create_token(settings: Settings, user_id: str, now: datetime | None = None) -> tuple[str, datetime]:
     issued = now or datetime.now(UTC)
     expires = issued + timedelta(seconds=settings.jwt_ttl_seconds)
-    token = jwt.encode(
-        {"sub": user_id, "iat": issued, "exp": expires}, settings.jwt_secret, algorithm=ALGORITHM
-    )
+    token = jwt.encode({"sub": user_id, "iat": issued, "exp": expires}, settings.jwt_secret, algorithm=ALGORITHM)
     return token, expires
 
 
 def decode_token(settings: Settings, token: str) -> str:
     """User id from a valid token; raises `unauthorized` otherwise."""
     try:
-        claims = jwt.decode(
-            token, settings.jwt_secret, algorithms=[ALGORITHM], options={"require": ["sub", "exp"]}
-        )
+        claims = jwt.decode(token, settings.jwt_secret, algorithms=[ALGORITHM], options={"require": ["sub", "exp"]})
     except jwt.ExpiredSignatureError as exc:
         raise unauthorized("token expired") from exc
     except jwt.InvalidTokenError as exc:

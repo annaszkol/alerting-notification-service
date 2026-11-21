@@ -84,6 +84,4 @@ def test_role_change_applies_without_new_token(client, login, conn):
     try:
         assert client.get("/api/me", headers=headers).json()["teams"][0]["role"] == "manager"
     finally:
-        conn.execute(
-            "UPDATE team_members SET role = 'member' WHERE user_id = 'anna' AND team_id = 'payments'"
-        )
+        conn.execute("UPDATE team_members SET role = 'member' WHERE user_id = 'anna' AND team_id = 'payments'")

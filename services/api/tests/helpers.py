@@ -43,9 +43,7 @@ def insert_alert(conn: psycopg.Connection, **values: Any) -> int:
             row[key] = Jsonb(row[key])
     columns = ", ".join(row)
     placeholders = ", ".join(f"%({k})s" for k in row)
-    return conn.execute(
-        f"INSERT INTO alerts ({columns}) VALUES ({placeholders}) RETURNING id", row
-    ).fetchone()["id"]
+    return conn.execute(f"INSERT INTO alerts ({columns}) VALUES ({placeholders}) RETURNING id", row).fetchone()["id"]
 
 
 def assert_matches(schema: str, data: Any) -> None:

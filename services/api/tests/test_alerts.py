@@ -74,9 +74,7 @@ def test_feed_pagination_is_stable(client, login, conn):
     assert sorted(seen) == sorted(created) and len(seen) == len(set(seen))
 
 
-@pytest.mark.parametrize(
-    "params", [{"cursor": "garbage"}, {"limit": 0}, {"severity": "fatal"}, {"team": "A B"}]
-)
+@pytest.mark.parametrize("params", [{"cursor": "garbage"}, {"limit": 0}, {"severity": "fatal"}, {"team": "A B"}])
 def test_feed_rejects_bad_parameters(client, login, params):
     response = client.get("/api/alerts", params=params, headers=login("mia"))
     assert response.status_code == 422
@@ -162,9 +160,7 @@ def test_ack_twice_is_409(client, login, conn):
 
 def test_resolve_with_note_from_acknowledged(client, login, conn):
     alert_id = insert_alert(conn, state="acknowledged")
-    response = client.post(
-        f"/api/alerts/{alert_id}/resolve", json={"note": "restarted"}, headers=login("anna")
-    )
+    response = client.post(f"/api/alerts/{alert_id}/resolve", json={"note": "restarted"}, headers=login("anna"))
     assert response.status_code == 200 and response.json()["state"] == "resolved"
     detail = client.get(f"/api/alerts/{alert_id}", headers=login("anna")).json()
     assert detail["resolvedBy"] == "anna"
@@ -225,9 +221,7 @@ def test_ack_function_runs_in_callers_transaction(database, conn, listener):
 
 
 def test_audit_log_is_append_only(conn):
-    conn.execute(
-        "INSERT INTO audit_log (actor, action, target_type, target_id) VALUES ('x', 'y', 'alert', '1')"
-    )
+    conn.execute("INSERT INTO audit_log (actor, action, target_type, target_id) VALUES ('x', 'y', 'alert', '1')")
     with pytest.raises(psycopg.errors.RaiseException):
         conn.execute("UPDATE audit_log SET actor = 'z'")
     with pytest.raises(psycopg.errors.RaiseException):

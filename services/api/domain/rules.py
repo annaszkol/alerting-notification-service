@@ -77,12 +77,8 @@ def _missing_references(conn: psycopg.Connection, doc: dict[str, Any]) -> list[d
     errors = []
     known_users = _existing(conn, "users", [u for u, _ in users])
     known_teams = _existing(conn, "teams", [t for t, _ in teams])
-    errors += [
-        {"path": p, "message": f"unknown user `{u}`"} for u, p in sorted(users) if u not in known_users
-    ]
-    errors += [
-        {"path": p, "message": f"unknown team `{t}`"} for t, p in sorted(teams) if t not in known_teams
-    ]
+    errors += [{"path": p, "message": f"unknown user `{u}`"} for u, p in sorted(users) if u not in known_users]
+    errors += [{"path": p, "message": f"unknown team `{t}`"} for t, p in sorted(teams) if t not in known_teams]
     return errors
 
 
@@ -96,9 +92,7 @@ def _existing(conn: psycopg.Connection, table: str, ids: list[str]) -> set[str]:
 # --- reads and writes ----------------------------------------------------------------------------------
 
 
-def list_rules(
-    conn: psycopg.Connection, team: str | None = None, user: str | None = None
-) -> list[dict[str, Any]]:
+def list_rules(conn: psycopg.Connection, team: str | None = None, user: str | None = None) -> list[dict[str, Any]]:
     where, params = [], []
     if team:
         where.append("owner->>'team' = %s")
