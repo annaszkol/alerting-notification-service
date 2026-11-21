@@ -1,0 +1,1586 @@
+openapi: 3.1.0
+info:
+  title: Alerting & Notification Service API
+  version: 1.0.0
+  description: |
+    REST API for the UI and for automation (owner C, spec §9). WebSocket messages:
+    [`ws-messages.md`](ws-messages.md). `NOTIFY` payloads: [`notify.md`](notify.md).
+
+    All paths below are relative to `/api`. `GET /healthz` (no prefix, no auth) is the container health check.
+    Auth: `Authorization: Bearer <jwt>` from `POST /auth/login`, except where `security: []`.
+    Errors always use `Error`. Long lists use cursor pagination (`Page`); small config lists are plain arrays.
+    Field names are camelCase; ids of config objects (users, teams, rules, runbooks, mappings, sources) are slugs,
+    ids of runtime objects (alerts, runs, approvals, suggestions) are integers. Times are ISO 8601 with offset.
+    Roles are read from the database on every request (`users.is_admin`, `team_members.role`), not from the token.
+servers:
+  - url: /api
+security:
+  - bearer: []
+
+tags:
+  - { name: auth }
+  - { name: alerts }
+  - { name: rules }
+  - { name: runbooks }
+  - { name: runs }
+  - { name: approvals }
+  - { name: mappings }
+  - { name: preferences }
+  - { name: oncall }
+  - { name: suggestions }
+  - { name: admin }
+  - { name: inbound }
+
+paths:
+  # --- auth -----------------------------------------------------------------------------------------------
+  /auth/users:
+    get:
+      tags: [auth]
+      operationId: listLoginUsers
+      summary: Users to pick on the mock login screen (seed data)
+      security: []
+      responses:
+        "200":
+          description: All users
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/User" } }
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Mock login - pick a seeded user, get a JWT (documented as a mock in the README)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      summary: Current user with team roles
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  # --- alerts ---------------------------------------------------------------------------------------------
+  /alerts:
+    get:
+      tags: [alerts]
+      operationId: listAlerts
+      summary: Alert feed, newest `lastSeen` first
+      parameters:
+        - { name: team, in: query, schema: { $ref: "#/components/schemas/Slug" }, description: "owner team or a team added by `escalate`" }
+        - { name: user, in: query, schema: { $ref: "#/components/schemas/Slug" }, description: "owner user (personal rules)" }
+        - name: severity
+          in: query
+          description: Repeatable; alerts with any of the listed severities
+          schema: { type: array, items: { $ref: "#/components/schemas/Severity" } }
+          style: form
+          explode: true
+        - name: state
+          in: query
+          description: Repeatable. Default = `open` and `acknowledged`
+          schema: { type: array, items: { $ref: "#/components/schemas/AlertState" } }
+          style: form
+          explode: true
+        - { name: q, in: query, schema: { type: string }, description: "case-insensitive substring of the title" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: Page of alerts
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Page" }
+                  - properties:
+                      items: { type: array, items: { $ref: "#/components/schemas/AlertSummary" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /alerts/{alertId}:
+    parameters: [{ $ref: "#/components/parameters/AlertId" }]
+    get:
+      tags: [alerts]
+      operationId: getAlert
+      responses:
+        "200":
+          description: Alert
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AlertDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /alerts/{alertId}/timeline:
+    parameters: [{ $ref: "#/components/parameters/AlertId" }]
+    get:
+      tags: [alerts]
+      operationId: getAlertTimeline
+      summary: State changes, notifications, runbook steps and approvals, oldest first
+      responses:
+        "200":
+          description: Timeline
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/TimelineEntry" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /alerts/{alertId}/ack:
+    parameters: [{ $ref: "#/components/parameters/AlertId" }]
+    post:
+      tags: [alerts]
+      operationId: ackAlert
+      summary: open -> acknowledged
+      responses:
+        "200":
+          description: Acknowledged
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AlertSummary" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /alerts/{alertId}/resolve:
+    parameters: [{ $ref: "#/components/parameters/AlertId" }]
+    post:
+      tags: [alerts]
+      operationId: resolveAlert
+      summary: open | acknowledged -> resolved (resolvedHow = manual)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                note: { type: string, maxLength: 2000 }
+      responses:
+        "200":
+          description: Resolved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AlertSummary" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /alerts/{alertId}/runbook-runs:
+    parameters: [{ $ref: "#/components/parameters/AlertId" }]
+    post:
+      tags: [runs]
+      operationId: startRunbookRun
+      summary: Start a run of an approved runbook for this alert (member of the owner team)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [runbookId]
+              properties:
+                runbookId: { $ref: "#/components/schemas/Slug" }
+      responses:
+        "201":
+          description: Run created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RunbookRun" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /alerts/{alertId}/suggestions:
+    parameters: [{ $ref: "#/components/parameters/AlertId" }]
+    post:
+      tags: [suggestions]
+      operationId: createSuggestion
+      summary: '"Propose a fix" of a rule or runbook from an alert (spec §9)'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SuggestionInput" }
+      responses:
+        "201":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Suggestion" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+
+  # --- rules ----------------------------------------------------------------------------------------------
+  /rules:
+    get:
+      tags: [rules]
+      operationId: listRules
+      parameters:
+        - { name: team, in: query, schema: { $ref: "#/components/schemas/Slug" } }
+        - { name: user, in: query, schema: { $ref: "#/components/schemas/Slug" } }
+      responses:
+        "200":
+          description: Rules
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Rule" } }
+    post:
+      tags: [rules]
+      operationId: createRule
+      summary: Manager of the owner team, the owner user (personal rule) or admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RuleInput" }
+      responses:
+        "201":
+          description: Created; config_version bumped, NOTIFY config_changed sent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Rule" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /rules/{ruleId}:
+    parameters: [{ $ref: "#/components/parameters/RuleId" }]
+    get:
+      tags: [rules]
+      operationId: getRule
+      responses:
+        "200":
+          description: Rule
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Rule" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [rules]
+      operationId: replaceRule
+      summary: Replace the whole document (id and owner from the path / existing rule)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RuleInput" }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Rule" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+    patch:
+      tags: [rules]
+      operationId: setRuleEnabled
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Rule" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [rules]
+      operationId: deleteRule
+      responses:
+        "204": { description: Deleted; open alerts of the rule stay as they are }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /rules/test:
+    post:
+      tags: [rules]
+      operationId: testRule
+      summary: Rule tester - letter, per-condition result, rendered title, recipients and channels now (spec §4)
+      description: Nothing is written. Works for an unsaved rule.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RuleTestRequest" }
+      responses:
+        "200":
+          description: Result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RuleTestResult" }
+        "422": { $ref: "#/components/responses/Invalid" }
+
+  # --- runbooks -------------------------------------------------------------------------------------------
+  /runbooks:
+    get:
+      tags: [runbooks]
+      operationId: listRunbooks
+      parameters:
+        - { name: team, in: query, schema: { $ref: "#/components/schemas/Slug" } }
+      responses:
+        "200":
+          description: Runbooks
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Runbook" } }
+  /runbooks/import:
+    post:
+      tags: [runbooks]
+      operationId: importRunbook
+      summary: Import an original (YAML, Markdown, checklist, text, link) into the canonical form (manager)
+      parameters:
+        - name: dryRun
+          in: query
+          description: true = return the canonical form without saving (preview)
+          schema: { type: boolean, default: false }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RunbookImportRequest" }
+      responses:
+        "200":
+          description: Preview (dryRun=true)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Runbook" }
+        "201":
+          description: Saved, not approved yet
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Runbook" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /runbooks/{runbookId}:
+    parameters: [{ $ref: "#/components/parameters/RunbookId" }]
+    get:
+      tags: [runbooks]
+      operationId: getRunbook
+      responses:
+        "200":
+          description: Runbook
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Runbook" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [runbooks]
+      operationId: replaceRunbook
+      summary: Edit steps / match (manager). Clears the approval - a changed runbook must be approved again
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RunbookInput" }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Runbook" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+    patch:
+      tags: [runbooks]
+      operationId: setRunbookMode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [mode]
+              properties:
+                mode: { enum: [manual, auto] }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Runbook" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [runbooks]
+      operationId: deleteRunbook
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /runbooks/{runbookId}/approve:
+    parameters: [{ $ref: "#/components/parameters/RunbookId" }]
+    post:
+      tags: [runbooks]
+      operationId: approveRunbook
+      summary: Manager approves the runbook; only then its actions may run (spec §7)
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Runbook" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /actions:
+    get:
+      tags: [runbooks]
+      operationId: listActions
+      summary: Action registry (contracts/actions.py); the step editor builds forms from paramsSchema
+      responses:
+        "200":
+          description: Actions
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/ActionInfo" } }
+
+  # --- runbook runs ---------------------------------------------------------------------------------------
+  /runbook-runs/{runId}:
+    parameters: [{ $ref: "#/components/parameters/RunId" }]
+    get:
+      tags: [runs]
+      operationId: getRunbookRun
+      responses:
+        "200":
+          description: Run with step runs
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RunbookRun" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /runbook-runs/{runId}/steps/{stepId}/start:
+    parameters: [{ $ref: "#/components/parameters/RunId" }, { $ref: "#/components/parameters/StepId" }]
+    post:
+      tags: [runs]
+      operationId: startStep
+      summary: Start an action or wait step (member of the owner team). Needs approval -> waiting_approval
+      responses:
+        "202":
+          description: Accepted; the executor runs it
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StepRun" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /runbook-runs/{runId}/steps/{stepId}/done:
+    parameters: [{ $ref: "#/components/parameters/RunId" }, { $ref: "#/components/parameters/StepId" }]
+    post:
+      tags: [runs]
+      operationId: markStepDone
+      summary: Tick off a manual `text` step; records who and when
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                note: { type: string, maxLength: 2000 }
+      responses:
+        "200":
+          description: Done
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StepRun" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  # --- approvals ------------------------------------------------------------------------------------------
+  /approvals:
+    get:
+      tags: [approvals]
+      operationId: listApprovals
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/ApprovalStatus" }
+        - name: mine
+          in: query
+          description: true = only approvals the current user is allowed to decide
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Approvals
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Approval" } }
+  /approvals/{approvalId}/approve:
+    parameters: [{ $ref: "#/components/parameters/ApprovalId" }]
+    post:
+      tags: [approvals]
+      operationId: approveStep
+      responses:
+        "200":
+          description: Approved (via = ui)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Approval" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /approvals/{approvalId}/reject:
+    parameters: [{ $ref: "#/components/parameters/ApprovalId" }]
+    post:
+      tags: [approvals]
+      operationId: rejectStep
+      responses:
+        "200":
+          description: Rejected (via = ui); the run ends as rejected
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Approval" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /approvals/by-token/{token}:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string, minLength: 16, maxLength: 512 } }
+    get:
+      tags: [approvals]
+      operationId: getApprovalByToken
+      summary: Page behind the email Approve / Reject link (signed, single-use, 24 h; no login)
+      security: []
+      responses:
+        "200":
+          description: What is being approved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApprovalByToken" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "410": { $ref: "#/components/responses/Gone" }
+    post:
+      tags: [approvals]
+      operationId: decideApprovalByToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision]
+              properties:
+                decision: { enum: [approve, reject] }
+      responses:
+        "200":
+          description: Decided (via = email)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Approval" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "410": { $ref: "#/components/responses/Gone" }
+
+  # --- mappings and unmapped (admin) ----------------------------------------------------------------------
+  /mappings:
+    get:
+      tags: [mappings]
+      operationId: listMappings
+      responses:
+        "200":
+          description: Mappings by priority
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Mapping" } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [mappings]
+      operationId: createMapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Mapping" }
+      responses:
+        "201":
+          description: Created; config_version bumped
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Mapping" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /mappings/{mappingId}:
+    parameters: [{ $ref: "#/components/parameters/MappingId" }]
+    put:
+      tags: [mappings]
+      operationId: replaceMapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Mapping" }
+      responses:
+        "200":
+          description: Saved; config_version bumped
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Mapping" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+    delete:
+      tags: [mappings]
+      operationId: deleteMapping
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /mappings/preview:
+    post:
+      tags: [mappings]
+      operationId: previewMapping
+      summary: Apply an unsaved mapping to a sample and return the letter (live preview)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [mapping, sample]
+              properties:
+                mapping: { $ref: "#/components/schemas/Mapping" }
+                sample: { $ref: "#/components/schemas/TestEvent" }
+      responses:
+        "200":
+          description: Letters (several when splitOn is set)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [detected, letters, errors]
+                properties:
+                  detected: { type: boolean }
+                  letters: { type: array, items: { $ref: "#/components/schemas/Letter" } }
+                  errors: { type: array, items: { $ref: "#/components/schemas/FieldError" } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /unmapped:
+    get:
+      tags: [mappings]
+      operationId: listUnmapped
+      summary: Unmapped samples grouped by the set of keys (shape_hash)
+      responses:
+        "200":
+          description: Groups, most recent first
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/UnmappedGroup" } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  # --- preferences, on-call -------------------------------------------------------------------------------
+  /preferences/me:
+    get:
+      tags: [preferences]
+      operationId: getMyPreferences
+      responses:
+        "200":
+          description: Own preferences (team defaults where not set)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Preferences" }
+    put:
+      tags: [preferences]
+      operationId: replaceMyPreferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Preferences" }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Preferences" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /oncall:
+    get:
+      tags: [oncall]
+      operationId: listOncall
+      parameters:
+        - { name: team, in: query, schema: { $ref: "#/components/schemas/Slug" } }
+      responses:
+        "200":
+          description: Rotations with the person on duty now
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/OncallSchedule" } }
+  /oncall/{teamId}:
+    parameters: [{ $ref: "#/components/parameters/TeamId" }]
+    put:
+      tags: [oncall]
+      operationId: replaceOncall
+      summary: Manager of the team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OncallSchedule" }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OncallSchedule" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Invalid" }
+
+  # --- suggestions ----------------------------------------------------------------------------------------
+  /suggestions:
+    get:
+      tags: [suggestions]
+      operationId: listSuggestions
+      parameters:
+        - { name: team, in: query, schema: { $ref: "#/components/schemas/Slug" } }
+        - { name: status, in: query, schema: { enum: [open, accepted, rejected] } }
+      responses:
+        "200":
+          description: Suggestions
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Suggestion" } }
+  /suggestions/{suggestionId}/{decision}:
+    parameters:
+      - { name: suggestionId, in: path, required: true, schema: { type: integer } }
+      - { name: decision, in: path, required: true, schema: { enum: [accept, reject] } }
+    post:
+      tags: [suggestions]
+      operationId: decideSuggestion
+      summary: Manager of the team owning the target
+      responses:
+        "200":
+          description: Decided
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Suggestion" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  # --- admin ----------------------------------------------------------------------------------------------
+  /users:
+    get:
+      tags: [admin]
+      operationId: listUsers
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/User" } }
+    post:
+      tags: [admin]
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/User" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /users/{userId}:
+    parameters: [{ $ref: "#/components/parameters/UserId" }]
+    put:
+      tags: [admin]
+      operationId: replaceUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/User" }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+    delete:
+      tags: [admin]
+      operationId: deleteUser
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /teams:
+    get:
+      tags: [admin]
+      operationId: listTeams
+      responses:
+        "200":
+          description: Teams with members
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Team" } }
+    post:
+      tags: [admin]
+      operationId: createTeam
+      summary: Create a team with members inline; new users in `newUsers` are created in the same transaction (onboarding in one call, spec §9, §13 no. 20)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TeamInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Team" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /teams/{teamId}:
+    parameters: [{ $ref: "#/components/parameters/TeamId" }]
+    put:
+      tags: [admin]
+      operationId: replaceTeam
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TeamInput" }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Team" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+    delete:
+      tags: [admin]
+      operationId: deleteTeam
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /sources:
+    get:
+      tags: [admin]
+      operationId: listSources
+      responses:
+        "200":
+          description: Sources
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Source" } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [admin]
+      operationId: createSource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Source" }
+      responses:
+        "201":
+          description: Created; config_version bumped. The ingest token is returned once
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Source" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /sources/{sourceId}:
+    parameters:
+      - { name: sourceId, in: path, required: true, schema: { $ref: "#/components/schemas/Slug" } }
+    put:
+      tags: [admin]
+      operationId: replaceSource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Source" }
+      responses:
+        "200":
+          description: Saved; config_version bumped
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Source" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+    delete:
+      tags: [admin]
+      operationId: deleteSource
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # --- inbound (fake gateway -> API, logic owned by B) ----------------------------------------------------
+  /inbound/sms:
+    post:
+      tags: [inbound]
+      operationId: inboundSms
+      summary: Inbound SMS / phone "press 1" from the gateway (contracts/delivery.md). Internal network only
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InboundSms" }
+      responses:
+        "200":
+          description: Result shown by the gateway as the reply
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [result]
+                properties:
+                  result: { enum: [acknowledged, approved, rejected, unknown_code, not_allowed] }
+        "422": { $ref: "#/components/responses/Invalid" }
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque; `nextCursor` of the previous page
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    AlertId: { name: alertId, in: path, required: true, schema: { type: integer } }
+    RuleId: { name: ruleId, in: path, required: true, schema: { $ref: "#/components/schemas/Slug" } }
+    RunbookId: { name: runbookId, in: path, required: true, schema: { $ref: "#/components/schemas/Slug" } }
+    RunId: { name: runId, in: path, required: true, schema: { type: integer } }
+    StepId: { name: stepId, in: path, required: true, schema: { type: string } }
+    ApprovalId: { name: approvalId, in: path, required: true, schema: { type: integer } }
+    MappingId: { name: mappingId, in: path, required: true, schema: { $ref: "#/components/schemas/Slug" } }
+    TeamId: { name: teamId, in: path, required: true, schema: { $ref: "#/components/schemas/Slug" } }
+    UserId: { name: userId, in: path, required: true, schema: { $ref: "#/components/schemas/Slug" } }
+
+  responses:
+    Unauthorized:
+      description: Missing, invalid or expired token (code `unauthorized`)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Forbidden:
+      description: Logged in, but without the required role (code `forbidden`)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    NotFound:
+      description: No such object (code `not_found`)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Conflict:
+      description: State does not allow it, e.g. ack of a resolved alert, duplicate id (code `conflict`)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Gone:
+      description: Approval link expired (code `expired`)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Invalid:
+      description: Validation failed (code `invalid`); `details` is a list of FieldError
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  schemas:
+    # --- common -------------------------------------------------------------------------------------------
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { enum: [unauthorized, forbidden, not_found, conflict, expired, invalid, internal] }
+            message: { type: string }
+            details:
+              description: For `invalid` a list of FieldError, otherwise free-form
+              oneOf:
+                - { type: array, items: { $ref: "#/components/schemas/FieldError" } }
+                - { type: object }
+                - { type: "null" }
+    FieldError:
+      type: object
+      required: [path, message]
+      properties:
+        path: { type: string, description: "JSON pointer-like path in the request, e.g. `when.all.1.error.code`" }
+        message: { type: string }
+    Page:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array }
+        nextCursor: { type: [string, "null"] }
+    Slug:
+      type: string
+      pattern: "^[a-z0-9][a-z0-9_.-]*$"
+      maxLength: 100
+    Severity: { enum: [info, warning, error, critical] }
+    AlertState: { enum: [open, acknowledged, resolved] }
+    ResolvedHow: { enum: [manual, event, runbook, silence] }
+    Channel: { enum: [ui, email, sms, phone] }
+    NotificationStatus: { enum: [pending, sending, sent, dead, held] }
+    TeamRole: { enum: [manager, member] }
+    Owner:
+      description: Rule / alert owner - a team or a person (personal rule)
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [team]
+          properties: { team: { $ref: "#/components/schemas/Slug" } }
+        - type: object
+          additionalProperties: false
+          required: [user]
+          properties: { user: { $ref: "#/components/schemas/Slug" } }
+    Condition:
+      description: "Condition JSON (contract A, spec §4). `all` / `any` / `not` and leaves `path: value | {op: value}`"
+      type: object
+    Duration:
+      type: string
+      pattern: "^[0-9]+(s|m|h|d)$"
+      examples: ["30s", "5m", "1h"]
+
+    # --- auth ---------------------------------------------------------------------------------------------
+    User:
+      type: object
+      required: [id, name]
+      properties:
+        id: { $ref: "#/components/schemas/Slug" }
+        name: { type: string, minLength: 1 }
+        email: { type: [string, "null"], format: email }
+        phone: { type: [string, "null"], pattern: "^\\+[1-9][0-9]{6,14}$", description: E.164 }
+        timezone: { type: string, default: UTC, description: IANA name }
+        isAdmin: { type: boolean, default: false }
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [userId]
+      properties:
+        userId: { $ref: "#/components/schemas/Slug" }
+    LoginResponse:
+      type: object
+      required: [token, expiresAt, user]
+      properties:
+        token: { type: string }
+        expiresAt: { type: string, format: date-time }
+        user: { $ref: "#/components/schemas/User" }
+    Me:
+      type: object
+      required: [user, teams, isAdmin]
+      properties:
+        user: { $ref: "#/components/schemas/User" }
+        isAdmin: { type: boolean }
+        teams:
+          type: array
+          items:
+            type: object
+            required: [id, name, role]
+            properties:
+              id: { $ref: "#/components/schemas/Slug" }
+              name: { type: string }
+              role: { $ref: "#/components/schemas/TeamRole" }
+
+    # --- alerts -------------------------------------------------------------------------------------------
+    AlertSummary:
+      type: object
+      required: [id, ruleId, owner, teams, state, severity, title, count, firstSeen, lastSeen, hasDeadNotification, version]
+      properties:
+        id: { type: integer }
+        ruleId: { type: [string, "null"], description: "null when the rule was deleted" }
+        owner: { $ref: "#/components/schemas/Owner" }
+        teams:
+          type: array
+          description: Owner team plus teams added by `escalate`; the feed `team` filter matches any of them
+          items: { $ref: "#/components/schemas/Slug" }
+        state: { $ref: "#/components/schemas/AlertState" }
+        severity: { $ref: "#/components/schemas/Severity" }
+        title: { type: string, description: "Live fields ($count, $state, $alertUrl) already rendered" }
+        color: { type: [string, "null"], description: "present.color" }
+        count: { type: integer, minimum: 1 }
+        firstSeen: { type: string, format: date-time }
+        lastSeen: { type: string, format: date-time }
+        hasDeadNotification: { type: boolean, description: "red banner (spec §6)" }
+        version:
+          type: string
+          description: Monotonic per alert. The client drops a message whose version is not newer than the one it has
+    AlertField:
+      type: object
+      required: [path, value]
+      properties:
+        path: { type: string }
+        value: { description: "any JSON value; null when missing (rendered as —)" }
+    AlertDetail:
+      allOf:
+        - { $ref: "#/components/schemas/AlertSummary" }
+        - type: object
+          required: [body, fields, firstEvent, lastEvent, notifications, runbooks]
+          properties:
+            body: { type: [string, "null"], description: "live fields rendered" }
+            fields: { type: array, items: { $ref: "#/components/schemas/AlertField" } }
+            correlationKey: { type: [string, "null"] }
+            firstEvent: { $ref: "#/components/schemas/Letter" }
+            lastEvent: { $ref: "#/components/schemas/Letter" }
+            ackedBy: { type: [string, "null"] }
+            ackedAt: { type: [string, "null"], format: date-time }
+            resolvedBy: { type: [string, "null"] }
+            resolvedAt: { type: [string, "null"], format: date-time }
+            resolvedHow: { oneOf: [{ $ref: "#/components/schemas/ResolvedHow" }, { type: "null" }] }
+            resolveNote: { type: [string, "null"] }
+            previousAlertId: { type: [integer, "null"] }
+            autoResolveAfter: { type: [string, "null"] }
+            notifications: { type: array, items: { $ref: "#/components/schemas/NotificationView" } }
+            runbooks: { type: array, items: { $ref: "#/components/schemas/AlertRunbook" } }
+    NotificationView:
+      type: object
+      required: [id, userId, channel, kind, status, attempts, createdAt]
+      properties:
+        id: { type: integer }
+        userId: { type: string }
+        channel: { $ref: "#/components/schemas/Channel" }
+        kind: { enum: [alert, limit, approval] }
+        status: { $ref: "#/components/schemas/NotificationStatus" }
+        attempts: { type: integer }
+        lastError: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        sentAt: { type: [string, "null"], format: date-time }
+    AlertRunbook:
+      type: object
+      description: A runbook matching the alert, steps rendered with values from the first event
+      required: [id, title, format, approved, steps]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        format: { enum: [yaml, markdown, checklist, text, link] }
+        url: { type: [string, "null"], description: "format = link" }
+        approved: { type: boolean }
+        mode: { enum: [manual, auto] }
+        steps: { type: array, items: { $ref: "#/components/schemas/RenderedStep" } }
+        runId: { type: [integer, "null"], description: "latest run for this alert" }
+    RenderedStep:
+      type: object
+      required: [id, kind, title, effectiveApproval]
+      properties:
+        id: { type: string }
+        kind: { enum: [text, action, wait] }
+        title: { type: string }
+        text: { type: [string, "null"], description: "rendered Markdown (no raw HTML) for kind = text" }
+        action: { type: [string, "null"] }
+        params: { type: object, description: "rendered" }
+        duration: { type: [string, "null"] }
+        effectiveApproval: { enum: [none, required], description: "max(step.approval, action.min_approval)" }
+        approvalRole: { $ref: "#/components/schemas/TeamRole" }
+        needsReview: { type: boolean }
+    TimelineEntry:
+      type: object
+      required: [ts, kind, summary]
+      properties:
+        ts: { type: string, format: date-time }
+        kind: { enum: [state, notification, step, approval, suggestion] }
+        actor: { type: [string, "null"], description: "user id, or `system` / `processor` / `executor` / `scheduler`" }
+        summary: { type: string, description: "one line for the UI, e.g. `acknowledged by anna via sms`" }
+        details: { type: object }
+
+    # --- events / letters ---------------------------------------------------------------------------------
+    TestEvent:
+      type: object
+      additionalProperties: false
+      required: [payload]
+      properties:
+        payload: { description: "raw payload: JSON value, or a string for log lines" }
+        sourceId: { type: string, description: "simulated source; default `http-default`" }
+        contentType: { type: string, default: application/json }
+    Letter:
+      type: object
+      description: Normalised event (contract A, spec §3) - `$` fields plus the untouched payload
+      required: [$eventId, $sourceId, $schema, payload]
+      properties:
+        $eventId: { type: string }
+        $sourceId: { type: string }
+        $sourceType: { type: string }
+        $receivedAt: { type: string }
+        $schema: { type: string }
+        $service: { type: [string, "null"] }
+        $instance: { type: [string, "null"] }
+        $environment: { type: [string, "null"] }
+        $severity: { $ref: "#/components/schemas/Severity" }
+        $severityRaw: {}
+        $status: { enum: [firing, resolved] }
+        $eventTime: { type: string }
+        $summary: { type: string }
+        $correlationKey: { type: [string, "null"] }
+        payload: {}
+      additionalProperties: true
+
+    # --- rules --------------------------------------------------------------------------------------------
+    RuleInput:
+      description: One JSON document (spec §4); the UI edits it with a form
+      allOf: [{ $ref: "#/components/schemas/RuleFields" }]
+      unevaluatedProperties: false
+    RuleFields:
+      type: object
+      required: [id, owner, when]
+      properties:
+        id: { $ref: "#/components/schemas/Slug" }
+        owner: { $ref: "#/components/schemas/Owner" }
+        enabled: { type: boolean, default: true }
+        when: { $ref: "#/components/schemas/Condition" }
+        route: { $ref: "./route.schema.json", default: [] }
+        present: { $ref: "#/components/schemas/Present" }
+        dedup: { $ref: "#/components/schemas/Dedup" }
+        autoResolveAfter: { oneOf: [{ $ref: "#/components/schemas/Duration" }, { type: "null" }] }
+        runbooks: { type: array, items: { $ref: "#/components/schemas/Slug" }, default: [] }
+    Rule:
+      allOf:
+        - { $ref: "#/components/schemas/RuleFields" }
+        - type: object
+          required: [updatedBy, updatedAt]
+          properties:
+            updatedBy: { type: string }
+            updatedAt: { type: string, format: date-time }
+      unevaluatedProperties: false
+    Present:
+      type: object
+      additionalProperties: false
+      properties:
+        title: { type: string, description: "template (spec §3)" }
+        body: { type: string }
+        fields: { type: array, items: { type: string } }
+        color: { type: string }
+        severity: { $ref: "#/components/schemas/Severity" }
+    Dedup:
+      type: object
+      additionalProperties: false
+      properties:
+        key: { type: array, items: { type: string }, description: "default: $correlationKey, else $service + $summary" }
+        mode: { enum: [until_resolved, window], default: until_resolved }
+        window: { $ref: "#/components/schemas/Duration" }
+    RuleTestRequest:
+      type: object
+      additionalProperties: false
+      required: [rule]
+      description: Exactly one of `event` and `alertId` (first event of an existing alert)
+      properties:
+        rule: { $ref: "#/components/schemas/RuleInput" }
+        event: { $ref: "#/components/schemas/TestEvent" }
+        alertId: { type: integer }
+    ConditionResult:
+      type: object
+      description: One node of the condition tree with its result
+      required: [result]
+      properties:
+        op: { type: string, description: "all | any | not | eq | ne | gt | ... | exists" }
+        path: { type: [string, "null"] }
+        expected: {}
+        actual: { description: "value found at path; absent when the field is missing" }
+        missing: { type: boolean }
+        result: { type: boolean }
+        children: { type: array, items: { $ref: "#/components/schemas/ConditionResult" } }
+    RuleTestResult:
+      type: object
+      required: [letters]
+      properties:
+        letters:
+          type: array
+          description: One entry per letter (several when the mapping splits the event)
+          items:
+            type: object
+            required: [letter, matched, conditions]
+            properties:
+              letter: { $ref: "#/components/schemas/Letter" }
+              mappingName: { type: [string, "null"] }
+              matched: { type: boolean }
+              conditions: { $ref: "#/components/schemas/ConditionResult" }
+              title: { type: [string, "null"] }
+              body: { type: [string, "null"] }
+              fields: { type: array, items: { $ref: "#/components/schemas/AlertField" } }
+              fingerprint: { type: [string, "null"] }
+              recipients:
+                type: array
+                description: plan_targets (B) evaluated now; empty = UI feed only
+                items:
+                  type: object
+                  required: [userId, channels]
+                  properties:
+                    userId: { type: string }
+                    channels: { type: array, items: { $ref: "#/components/schemas/Channel" } }
+                    reason: { type: string, description: "e.g. `oncall: settlements`, `schedule 08:00-20:00`" }
+
+    # --- runbooks -----------------------------------------------------------------------------------------
+    RunbookImportRequest:
+      type: object
+      additionalProperties: false
+      required: [id, owner, format, original]
+      properties:
+        id: { $ref: "#/components/schemas/Slug" }
+        title: { type: string }
+        owner: { type: object, required: [team], properties: { team: { $ref: "#/components/schemas/Slug" } } }
+        format: { enum: [yaml, markdown, checklist, text, link] }
+        original: { type: string, maxLength: 100000 }
+    RunbookInput:
+      type: object
+      additionalProperties: false
+      required: [title, steps]
+      properties:
+        title: { type: string }
+        match: { oneOf: [{ $ref: "#/components/schemas/Condition" }, { type: "null" }] }
+        steps: { type: array, description: "canonical steps, see runbook.schema.json", items: { type: object } }
+    Runbook:
+      type: object
+      required: [id, owner, title, format, original, canonical, mode, approvedBy]
+      properties:
+        id: { type: string }
+        owner: { type: object, required: [team], properties: { team: { type: string } } }
+        title: { type: string }
+        format: { enum: [yaml, markdown, checklist, text, link] }
+        original: { type: string }
+        canonical: { $ref: "./runbook.schema.json" }
+        mode: { enum: [manual, auto] }
+        approvedBy: { type: [string, "null"] }
+        approvedAt: { type: [string, "null"], format: date-time }
+        updatedBy: { type: [string, "null"] }
+        updatedAt: { type: [string, "null"], format: date-time }
+    ActionInfo:
+      type: object
+      required: [name, paramsSchema, minApproval]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        paramsSchema: { type: object, description: "JSON Schema" }
+        minApproval: { enum: [none, required] }
+
+    # --- runs and approvals -------------------------------------------------------------------------------
+    RunbookRun:
+      type: object
+      required: [id, alertId, runbookId, status, startedBy, startedAt, steps]
+      properties:
+        id: { type: integer }
+        alertId: { type: integer }
+        runbookId: { type: string }
+        status: { enum: [running, waiting_approval, succeeded, failed, rejected, cancelled] }
+        startedBy: { type: string, description: "user id, or `auto` (mode: auto)" }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: [string, "null"], format: date-time }
+        steps: { type: array, items: { $ref: "#/components/schemas/StepRun" } }
+    StepRun:
+      type: object
+      required: [stepId, status, attempt]
+      properties:
+        id: { type: [integer, "null"], description: "null for a step that has not been reached yet" }
+        stepId: { type: string }
+        status: { enum: [pending, scheduled, running, waiting_approval, succeeded, failed, skipped, rejected, done] }
+        params: { type: object, description: "after template substitution" }
+        result: { type: [object, "null"], description: "{ok, output, error}" }
+        attempt: { type: integer }
+        nextRunAt: { type: [string, "null"], format: date-time }
+        startedBy: { type: [string, "null"] }
+        executedBy: { type: [string, "null"] }
+        approvedBy: { type: [string, "null"] }
+        approvalId: { type: [integer, "null"] }
+        startedAt: { type: [string, "null"], format: date-time }
+        finishedAt: { type: [string, "null"], format: date-time }
+        note: { type: [string, "null"] }
+    ApprovalStatus: { enum: [pending, approved, rejected] }
+    Approval:
+      type: object
+      required: [id, alertId, runId, stepId, requiredRole, team, status, createdAt]
+      properties:
+        id: { type: integer }
+        alertId: { type: integer }
+        runId: { type: integer }
+        stepId: { type: string }
+        stepTitle: { type: string }
+        team: { type: string, description: "team whose role is required" }
+        requiredRole: { $ref: "#/components/schemas/TeamRole" }
+        status: { $ref: "#/components/schemas/ApprovalStatus" }
+        decidedBy: { type: [string, "null"] }
+        decidedAt: { type: [string, "null"], format: date-time }
+        via: { enum: [ui, sms, email, null] }
+        createdAt: { type: string, format: date-time }
+    ApprovalByToken:
+      type: object
+      required: [approval, alert, step, userId]
+      properties:
+        approval: { $ref: "#/components/schemas/Approval" }
+        alert: { $ref: "#/components/schemas/AlertSummary" }
+        step: { $ref: "#/components/schemas/RenderedStep" }
+        userId: { type: string, description: "the person the link was sent to; recorded as decidedBy" }
+
+    # --- mappings -----------------------------------------------------------------------------------------
+    Mapping:
+      type: object
+      additionalProperties: false
+      description: Schema mapping (spec §3); fields per contract A
+      required: [id, fields]
+      properties:
+        id: { $ref: "#/components/schemas/Slug" }
+        priority: { type: integer, default: 100, description: "lower runs first" }
+        sources: { type: array, items: { type: string }, description: "empty = all sources" }
+        detect: { $ref: "#/components/schemas/Condition" }
+        schemaFrom: { type: [string, "null"] }
+        splitOn: { type: [string, "null"] }
+        fields: { type: object, description: "`$field` -> path | {const} | {from, map, format} | template" }
+    UnmappedGroup:
+      type: object
+      required: [shapeHash, sourceId, keys, count, lastSeen, sample]
+      properties:
+        shapeHash: { type: string }
+        sourceId: { type: string }
+        keys: { type: array, items: { type: string }, description: "set of key paths that defines the shape" }
+        count: { type: integer }
+        lastSeen: { type: string, format: date-time }
+        sample: { description: "latest raw payload" }
+
+    # --- preferences, on-call -----------------------------------------------------------------------------
+    Preferences:
+      type: object
+      additionalProperties: false
+      properties:
+        timezone: { type: string }
+        workingHours:
+          type: [object, "null"]
+          additionalProperties: false
+          properties:
+            between: { type: string, pattern: "^[0-2][0-9]:[0-5][0-9]-[0-2][0-9]:[0-5][0-9]$" }
+            days: { type: array, items: { type: integer, minimum: 1, maximum: 7 } }
+        bySeverity:
+          type: object
+          additionalProperties: false
+          description: severity -> channels; a missing key falls back to the team default
+          properties:
+            info: { type: array, items: { $ref: "#/components/schemas/Channel" } }
+            warning: { type: array, items: { $ref: "#/components/schemas/Channel" } }
+            error: { type: array, items: { $ref: "#/components/schemas/Channel" } }
+            critical: { type: array, items: { $ref: "#/components/schemas/Channel" } }
+        outsideWorkingHours:
+          type: array
+          description: channels used outside working hours instead of bySeverity
+          items: { $ref: "#/components/schemas/Channel" }
+    OncallSchedule:
+      type: object
+      required: [teamId, rotation, shiftLength, handoffTime, timezone]
+      properties:
+        teamId: { type: string }
+        rotation: { type: array, minItems: 1, items: { type: string }, description: "ordered user ids" }
+        shiftLength: { $ref: "#/components/schemas/Duration" }
+        handoffTime: { type: string, pattern: "^[0-2][0-9]:[0-5][0-9]$" }
+        timezone: { type: string }
+        startsOn: { type: string, format: date, description: "first shift of rotation[0]" }
+        currentUserId: { type: [string, "null"], readOnly: true }
+        currentUntil: { type: [string, "null"], format: date-time, readOnly: true }
+
+    # --- suggestions --------------------------------------------------------------------------------------
+    SuggestionInput:
+      allOf: [{ $ref: "#/components/schemas/SuggestionFields" }]
+      unevaluatedProperties: false
+    SuggestionFields:
+      type: object
+      required: [target, text]
+      properties:
+        target: { enum: [rule, runbook] }
+        targetId: { type: [string, "null"], description: "default: the alert's rule" }
+        text: { type: string, minLength: 1, maxLength: 5000 }
+    Suggestion:
+      unevaluatedProperties: false
+      allOf:
+        - { $ref: "#/components/schemas/SuggestionFields" }
+        - type: object
+          required: [id, alertId, author, status, createdAt]
+          properties:
+            id: { type: integer }
+            alertId: { type: integer }
+            author: { type: string }
+            status: { enum: [open, accepted, rejected] }
+            decidedBy: { type: [string, "null"] }
+            decidedAt: { type: [string, "null"], format: date-time }
+            createdAt: { type: string, format: date-time }
+
+    # --- admin --------------------------------------------------------------------------------------------
+    TeamMember:
+      type: object
+      additionalProperties: false
+      required: [userId, role]
+      properties:
+        userId: { $ref: "#/components/schemas/Slug" }
+        role: { $ref: "#/components/schemas/TeamRole" }
+    TeamInput:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id: { $ref: "#/components/schemas/Slug" }
+        name: { type: string, minLength: 1 }
+        members: { type: array, items: { $ref: "#/components/schemas/TeamMember" }, default: [] }
+        newUsers:
+          type: array
+          description: Users created in the same transaction before members are added
+          items: { $ref: "#/components/schemas/User" }
+          default: []
+    Team:
+      type: object
+      required: [id, name, members]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        members: { type: array, items: { $ref: "#/components/schemas/TeamMember" } }
+    Source:
+      type: object
+      additionalProperties: false
+      required: [id, type]
+      properties:
+        id: { $ref: "#/components/schemas/Slug" }
+        type: { enum: [http, kafka, logfile] }
+        config: { type: object, description: "type-specific: topic, file path, ..." }
+        parser: { enum: [json, logfmt, regex], default: json }
+        defaultSeverity: { $ref: "#/components/schemas/Severity" }
+        enabled: { type: boolean, default: true }
+        token: { type: [string, "null"], readOnly: true, description: "HTTP ingest token; only in the create response" }
+    InboundSms:
+      type: object
+      required: [from, text]
+      properties:
+        from: { type: string }
+        text: { type: string }
+        receivedAt: { type: string, format: date-time }
+        gatewayMessageId: { type: string }
