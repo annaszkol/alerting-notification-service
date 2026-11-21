@@ -35,6 +35,7 @@ from contracts.delivery import (
 from db.rows import plain_rows
 from services.delivery.codes import new_code
 from services.delivery.directory import Directory, Profile, SqlDirectory
+from services.delivery.presence import allowed_while_away
 from services.delivery.schedule import DEFAULT_LIMITS, Limit, pick_channels, preference_for, zone
 
 
@@ -73,14 +74,24 @@ def plan_targets(
 ) -> list[tuple[str, Channel]]:
     """Unique (user, channel) pairs for a route, sorted so that row locks are taken in a fixed order."""
     entries = [
-        (resolve_recipients(conn, directory, entry["to"], now), entry.get("channels", "preferences")) for entry in route
+        (
+            resolve_recipients(conn, directory, entry["to"], now),
+            entry.get("channels", "preferences"),
+            "oncall" in entry["to"],
+        )
+        for entry in route
     ]
-    need_profile = {user for users, spec in entries if not isinstance(spec, list) for user in users}
+    need_profile = {user for users, spec, _ in entries if not isinstance(spec, list) for user in users}
     profiles = directory.profiles(conn, need_profile, owner_team) if need_profile else {}
+    # work time (spec §6 "Czas pracy"): away people get only what allowed_while_away keeps, unless on call
+    away = directory.away(conn, {user for users, _, _ in entries for user in users}, now)
     targets: set[tuple[str, Channel]] = set()
-    for users, spec in entries:
+    for users, spec, on_call in entries:
         for user in users:
-            targets.update((user, channel) for channel in channels_for(spec, profiles.get(user), severity, now))
+            channels = channels_for(spec, profiles.get(user), severity, now)
+            if user in away and not on_call:
+                channels = [c for c in channels if allowed_while_away(c, severity)]
+            targets.update((user, channel) for channel in channels)
     return sorted(targets)
 
 

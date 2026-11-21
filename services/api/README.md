@@ -15,6 +15,7 @@ REST API under `/api`, mock login with JWT, role checks. Contract: [`contracts/o
 | `ws.py` | WebSocket `/ws`: one `LISTEN alerts_changed` per instance, batched reads by id, per-client filters, ping, `resync` |
 | `routers/inbound.py` | `POST /api/inbound/sms` from the fake gateway; thin route, logic is B's `services/delivery/inbound.py` |
 | `routers/runbooks.py` | runbooks (read, edit, mode, approve, delete), `/actions`, runbook runs (start, step start, step done), approvals (list, approve, reject, email link by token); thin routes over B's `services/executor/runbooks.py`, `engine.py`, `approvals.py` |
+| `routers/work.py` | work time (spec §6 "Czas pracy"): `GET/PUT /me/work` (status, tracking on / off), `POST /me/work/start` (also switches tracking on; twice = same session), `POST /me/work/stop` (409 if not at work), `GET /work/active` (who is at work, for the on-call screen) |
 
 ## Login is a mock
 
@@ -33,6 +34,7 @@ a warning.
 | create / edit / disable / delete a team rule | manager of that team, admin |
 | personal rule (`owner: {user}`) | that user, admin |
 | move a rule to another owner | rights on both owners |
+| start / stop work, tracking on / off | only for yourself |
 
 ## WebSocket
 

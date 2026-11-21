@@ -258,6 +258,15 @@ Adapter kanału ma jeden interfejs: `send(notification, message) → sent | retr
 
 Scenariusz demo: włączamy „awarię” w fake SMS, kolejka rośnie, wyłączamy awarię, wszystko dochodzi; liczba `dead` = 0.
 
+### Czas pracy (start / stop)
+
+Osoba może włączyć „powiadamiaj mnie tylko, gdy jestem w pracy” i klikać w aplikacji **Start** / **Stop**. Kto tego nie włączy, działa jak dotąd (godziny pracy z preferencji, harmonogramy z reguł).
+
+- Sesje w `work_sessions` (najwyżej jedna otwarta na osobę), zgoda w `work_tracking`. Sesja otwarta dłużej niż 12 h nie liczy się jako aktywna (zapomniany „Stop”), a scheduler ją zamyka (`ended_how = 'auto'`).
+- W `plan_notifications` osoba ze zgodą i bez aktywnej sesji dostaje tylko kanał `ui`: alert jest w feedzie, ale bez emaila, SMS-a i telefonu.
+- Wyjątki, żeby nikt nie przegapił awarii przez niekliknięty „Start”: odbiorca z `oncall` (dyżurny) dostaje wszystko, a `critical` przez telefon przechodzi zawsze (jak przy throttlingu).
+- Prośby o zatwierdzenie kroków runbooka nie zależą od obecności.
+
 ## 7. Runbooki
 
 Runbook przechowujemy jako oryginał i jako postać kanoniczną, czyli listę kroków. Import jest deterministyczny i nie wymaga LLM; LLM jest opcjonalnym dodatkiem na koniec. Akcje może wykonywać tylko runbook zatwierdzony przez managera; do tego czasu jest tekstem do przeczytania.
@@ -508,6 +517,7 @@ Trzy decyzje do podjęcia w fazie 0. Domyślne odpowiedzi obowiązują, jeśli n
 | Język backendu | ten, w którym cała trójka pisze najszybciej (np. Python + FastAPI) | Java + Spring Boot: wyższa przepustowość, wolniejszy start |
 | `critical` przez telefon a throttling | omija limit | podlega limitowi |
 | Start runbooków z `approval: none` | ręcznie; `mode: auto` włącza manager | zawsze automatycznie |
+| Powiadomienia przy czasie pracy start/stop (§6) | nieaktywny dostaje tylko UI; dyżurny i `critical` przez telefon zawsze; auto-stop po 12 h | brak wyjątków |
 
 **Poza zakresem, pokazujemy jako roadmapę:** Redis jako szybka ścieżka dedupu (gdy load test pokaże, że wąskim gardłem jest Postgres), circuit breaker, kanał zapasowy, eskalacja przy braku potwierdzenia, historia wersji i rollback reguł, przeładowanie plików konfiguracyjnych, automatyczna aktualizacja runbooków na podstawie wykonanych kroków.
 

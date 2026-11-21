@@ -11,6 +11,7 @@ from datetime import datetime
 
 import psycopg
 
+from services.delivery.presence import close_stale_sessions
 from services.executor.alerts import notify_alerts_changed
 
 log = logging.getLogger("scheduler")
@@ -57,7 +58,12 @@ def clean_processed_events(conn: psycopg.Connection, now: datetime) -> int:
 def run_jobs(conn: psycopg.Connection, now: datetime) -> dict[str, int]:
     """Run every job; a failing job is logged and does not stop the others."""
     done: dict[str, int] = {}
-    for name, job in (("silence", resolve_silent_alerts), ("processed_events", clean_processed_events)):
+    jobs = (
+        ("silence", resolve_silent_alerts),
+        ("processed_events", clean_processed_events),
+        ("work_sessions", close_stale_sessions),  # forgotten "Stop" (spec §6 "Czas pracy")
+    )
+    for name, job in jobs:
         try:
             result = job(conn, now)
             done[name] = len(result) if isinstance(result, list) else result

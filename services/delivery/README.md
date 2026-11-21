@@ -5,6 +5,7 @@
 | `planning.py` | `plan_notifications(conn, alert, rule, now)`: called by the processor in its transaction for a new alert; inserts `notifications` rows (outbox). Contract: `contracts/delivery.md`. |
 | `directory.py` | users, teams, on-call, time zones, preferences (`SqlDirectory`; `StaticDirectory` for tests) |
 | `schedule.py` | pure time logic: schedule windows, preference lookup, rotations |
+| `presence.py` | work time start / stop: who is away now, what an away person still gets, closing forgotten sessions |
 | `channels/` | channel adapters: `smtp` (Mailpit), `fake_sms`, `fake_phone` (mocks/fake_gateway), `websocket` (UI); `registry.create(adapter, config)` |
 | `inbound.py` | replies from the gateway: `ACK` / `APPROVE` / `REJECT <code>`, called by `POST /api/inbound/sms` |
 | `codes.py` | 6-character reply codes (no 0/O/1/I) |
@@ -29,6 +30,10 @@ Routing (spec §4, §6):
   `held`. Held alerts don't count, so the person is unblocked when the window passes. Critical alerts by phone
   bypass the limit (spec §14). Limits: built-in (SMS 5 / 10 min, phone 5 / 10 min, email 20 / 10 min, UI none)
   < team `channel_preferences.limits` < personal limits; `null` removes a limit for a channel.
+- Work time start / stop (spec §6 "Czas pracy"): a person with `work_tracking.enabled` and no open session younger
+  than 12 h is *away* and gets only `ui` (alert in the feed, no email / SMS / phone). Exceptions: a recipient
+  reached through `oncall` gets everything, and a `critical` phone call always goes through. People without
+  tracking are unaffected. Approval requests for runbook steps do not depend on presence.
 
 Processor usage:
 

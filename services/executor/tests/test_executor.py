@@ -438,7 +438,7 @@ def test_jobs_on_a_fresh_database():
         pytest.skip("TEST_DATABASE_URL not set")
     with temporary_database("test_sched_empty", migrate=True) as conninfo:
         with psycopg.connect(conninfo, autocommit=True) as c:
-            assert scheduler.run_jobs(c, T0) == {"silence": 0, "processed_events": 0}
+            assert scheduler.run_jobs(c, T0) == {"silence": 0, "processed_events": 0, "work_sessions": 0}
 
 
 def test_notify_payload_uses_the_contract_split():
