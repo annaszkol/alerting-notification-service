@@ -34,7 +34,7 @@ package = false
 pythonpath = ["."]
 addopts = "--import-mode=importlib"
 filterwarnings = ["ignore:Using `httpx` with `starlette.testclient` is deprecated"]
-testpaths = ["contracts", "db", "deploy", "libs", "services", "mocks", "tests"]
+testpaths = ["contracts", "db", "deploy", "libs", "loadtest", "services", "mocks", "tests"]
 markers = [
     "db: needs a Postgres database (TEST_DATABASE_URL); skipped when it is not set",
 ]
