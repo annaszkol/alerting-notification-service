@@ -5,6 +5,7 @@
 sources:
   - { id: http-default, type: http, parser: json }
   - { id: workflows, type: http, parser: json }
+  - { id: workflows-kafka, type: kafka, parser: json, config: { topic: workflow-events } }
   - { id: monitoring, type: http, parser: json, default_severity: warning }
   - { id: trades, type: http, parser: json }
   - { id: pricing-logs, type: logfile, parser: logfmt, config: { path: /var/log/pricing/pricing-engine.log } }

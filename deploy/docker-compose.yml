@@ -78,8 +78,10 @@ services:
     # Idempotent: create the topic, or accept that it already exists.
     command:
       - >-
-        rpk topic create events.raw -p $${EVENTS_RAW_PARTITIONS} -X brokers=redpanda:9092
-        || rpk topic describe events.raw -X brokers=redpanda:9092
+        (rpk topic create events.raw -p $${EVENTS_RAW_PARTITIONS} -X brokers=redpanda:9092
+        || rpk topic describe events.raw -X brokers=redpanda:9092)
+        && (rpk topic create workflow-events -p 3 -X brokers=redpanda:9092
+        || rpk topic describe workflow-events -X brokers=redpanda:9092)
     environment:
       EVENTS_RAW_PARTITIONS: ${EVENTS_RAW_PARTITIONS:-12}
     restart: "no"
@@ -161,6 +163,16 @@ services:
       <<: *http-healthcheck
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
 
+  tailer: # owner A: log files -> events.raw (spec §2); demo lines: compose exec tailer python -m mocks.generator pricing
+    <<: *app
+    command: ["python", "-m", "services.ingest.tailer"]
+    volumes:
+      - pricing-logs:/var/log/pricing
+
+  kafka-adapter: # owner A: external topics (sources of type kafka) -> events.raw
+    <<: *app
+    command: ["python", "-m", "services.ingest.kafka_adapter"]
+
   processor: # owner A
     <<: *app
     command: ["python", "-m", "services.processor"]
@@ -191,3 +203,4 @@ services:
 volumes:
   postgres-data:
   redpanda-data:
+  pricing-logs:

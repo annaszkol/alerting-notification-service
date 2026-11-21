@@ -32,7 +32,7 @@ compose exec -T redpanda rpk topic list -X brokers=redpanda:9092 | grep -qw 'eve
 users=$(compose exec -T postgres psql -U "${POSTGRES_USER:-alerting}" -d "${POSTGRES_DB:-alerting}" -tAc "SELECT count(*) FROM users")
 [[ "$users" -gt 0 ]] && echo "ok   seed: $users users" || { echo "FAIL seed: no users"; exit 1; }
 
-for svc in processor delivery executor; do
+for svc in processor delivery executor tailer kafka-adapter; do
   state=$(docker inspect -f '{{.State.Status}}' "$(compose ps -q "$svc")")
   [[ "$state" == running ]] && echo "ok   $svc running" || { echo "FAIL $svc is $state"; exit 1; }
 done
@@ -56,5 +56,33 @@ for _ in $(seq 1 60); do
 done
 curl -fsS http://localhost:8090/api/messages?channel=sms | grep -q "Settlement failed: $workflow_id" \
   || { echo "FAIL no SMS for $workflow_id"; compose logs --no-color processor delivery ingest | tail -60; exit 1; }
+
+# Kafka adapter: a workflow failure on the external topic workflow-events -> SMS.
+kafka_wf="WF-KAFKA-$RANDOM"
+printf '{"type": "WORKFLOW_FAILED", "workflowId": "%s", "workflowName": "order-settlement", "step": "book", "severity": "ERROR", "environment": "prod", "error": {"code": "TIMEOUT", "message": "slow"}}\n' "$kafka_wf" \
+  | compose exec -T redpanda rpk topic produce workflow-events -X brokers=redpanda:9092 >/dev/null
+for _ in $(seq 1 60); do
+  curl -fsS "http://localhost:8090/api/messages?channel=sms" | grep -q "Settlement failed: $kafka_wf" && break
+  sleep 1
+done
+if curl -fsS "http://localhost:8090/api/messages?channel=sms" | grep -q "Settlement failed: $kafka_wf"; then
+  echo "ok   Kafka source -> SMS for $kafka_wf"
+else
+  echo "FAIL no SMS for $kafka_wf"; compose logs --no-color kafka-adapter processor | tail -40; exit 1
+fi
+
+# Log tailer (spec §13 test 2): two WARN lines from two pricing engines -> one pricing alert in the API.
+compose exec -T tailer python -m mocks.generator pricing --lines 2 >/dev/null
+api_token=$(curl -fsS -X POST localhost:8000/api/auth/login -H 'Content-Type: application/json' -d '{"userId": "grace"}' \
+  | python3 -c 'import sys, json; print(json.load(sys.stdin)["token"])')
+for _ in $(seq 1 60); do
+  curl -fsS "localhost:8000/api/alerts?team=pricing" -H "Authorization: Bearer $api_token" | grep -q "EURUSD" && break
+  sleep 1
+done
+if curl -fsS "localhost:8000/api/alerts?team=pricing" -H "Authorization: Bearer $api_token" | grep -q "EURUSD"; then
+  echo "ok   log lines -> pricing alert in the API"
+else
+  echo "FAIL no pricing alert"; compose logs --no-color tailer processor | tail -40; exit 1
+fi
 
 echo "smoke test passed"
