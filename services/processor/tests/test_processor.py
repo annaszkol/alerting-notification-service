@@ -46,7 +46,8 @@ def database():
         pytest.skip("TEST_DATABASE_URL not set")
     with temporary_database("test_processor", migrate=True) as conninfo:
         with psycopg.connect(conninfo) as conn:
-            apply(conn, load_files(DEFAULT_FILES))  # people, teams, on-call, preferences, runbooks
+            # people, teams, on-call, preferences, runbooks; rules / mappings / sources are inserted below
+            apply(conn, load_files([f for f in DEFAULT_FILES if f.name != "config.yaml"]))
             for rule in [*ex.RULES, SOURCE_RULE]:
                 conn.execute(
                     """INSERT INTO rules (id, owner, "when", route, present, dedup, auto_resolve_after, runbook_ids,
