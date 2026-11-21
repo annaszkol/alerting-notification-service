@@ -17,5 +17,6 @@ RUN uv sync --frozen --no-dev
 
 COPY . .
 
-RUN useradd --system --uid 10001 app
+RUN useradd --system --uid 10001 app \
+    && mkdir -p /var/log/pricing && chown app /var/log/pricing  # demo log: generator writes, tailer reads
 USER app
