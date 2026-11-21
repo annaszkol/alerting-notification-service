@@ -15,7 +15,7 @@ from psycopg_pool import ConnectionPool
 
 from services.api import errors
 from services.api.db import create_pool
-from services.api.routers import alerts, auth, rules
+from services.api.routers import alerts, auth, inbound, rules
 from services.api.settings import Settings
 from services.api.ws import Hub
 
@@ -53,7 +53,7 @@ def create_app(
     app.state.hub = hub
     errors.install(app)
 
-    for module in (auth, alerts, rules):
+    for module in (auth, alerts, rules, inbound):
         app.include_router(module.router, prefix="/api")
 
     @app.websocket("/ws")

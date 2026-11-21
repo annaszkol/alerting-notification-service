@@ -17,7 +17,6 @@ import hashlib
 import hmac
 import json
 import os
-import secrets
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -25,16 +24,12 @@ from typing import Any
 
 import psycopg
 
+from db.rows import plain_rows
+from services.delivery.codes import CODE_ALPHABET, CODE_LENGTH, new_code  # noqa: F401 - re-exported
 from services.executor.engine import Executor, ExecutorError
 
-CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O/1/I (contracts/delivery.md)
-CODE_LENGTH = 6
 APPROVAL_CHANNELS = ("sms", "email")
 TOKEN_TTL = timedelta(hours=24)
-
-
-def new_code() -> str:
-    return "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
 
 
 def approval_team(run: Mapping[str, Any], alert_owner: Mapping[str, Any] | None) -> str | None:
@@ -51,6 +46,7 @@ def approvers(conn: psycopg.Connection, team: str, role: str) -> list[str]:
     return [r[0] for r in rows]
 
 
+@plain_rows
 def request_approval(
     conn: psycopg.Connection, step_run_id: int, run: Mapping[str, Any], step: Mapping[str, Any]
 ) -> int:
@@ -93,6 +89,7 @@ def _may_decide(conn: psycopg.Connection, user: str, team: str, role: str) -> bo
     return user in approvers(conn, team, role)
 
 
+@plain_rows
 def decide(
     conn: psycopg.Connection,
     approval_id: int,
@@ -131,6 +128,7 @@ def decide(
     return Decision(decision, approval_id)
 
 
+@plain_rows
 def decide_by_code(
     conn: psycopg.Connection, code: str, phone: str, decision: str, now: datetime, executor: Executor | None = None
 ) -> Decision:
@@ -151,6 +149,7 @@ def decide_by_code(
 _DECISIONS = {"approve": "approved", "approved": "approved", "reject": "rejected", "rejected": "rejected"}
 
 
+@plain_rows
 def decide_approval(
     conn: psycopg.Connection,
     approval_id: int,
@@ -167,6 +166,7 @@ def decide_approval(
     return decide(conn, approval_id, _DECISIONS[decision], actor, via, now or datetime.now(UTC), executor)
 
 
+@plain_rows
 def decide_by_token(
     conn: psycopg.Connection, token: str, decision: str, now: datetime | None = None, executor: Executor | None = None
 ) -> Decision:

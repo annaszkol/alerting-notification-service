@@ -6,6 +6,8 @@
 | `directory.py` | users, teams, on-call, time zones, preferences (`SqlDirectory`; `StaticDirectory` for tests) |
 | `schedule.py` | pure time logic: schedule windows, preference lookup, rotations |
 | `channels/` | channel adapters: `smtp` (Mailpit), `fake_sms`, `fake_phone` (mocks/fake_gateway), `websocket` (UI); `registry.create(adapter, config)` |
+| `inbound.py` | replies from the gateway: `ACK` / `APPROVE` / `REJECT <code>`, called by `POST /api/inbound/sms` |
+| `codes.py` | 6-character reply codes (no 0/O/1/I) |
 | `messages.py` | SMS (≤160 chars) and phone texts |
 | `worker.py` | claim (lease + `SKIP LOCKED`) → render → send → record, retry with backoff, dead letters |
 | `__main__.py` | worker process: `python -m services.delivery` |
@@ -57,3 +59,19 @@ Adapters never raise for provider errors: 2xx → `sent`; timeouts, connection e
 - Polls every 0.5 s when idle (`DELIVERY_POLL_SECONDS`); reloads the `channels` table every 30 s.
 - Until `alerts` (owner A) is migrated, the worker reads `alerts(id, title, body, severity, state, count)` as in
   spec §8; tests create that minimal table themselves.
+
+## Replies by SMS and phone
+
+- Every alert notification carries the person's `ACK <code>`: one code per (alert, person), the same on all of that
+  person's channels; a person who already has a code for the alert keeps it.
+- The fake gateway forwards replies and "press 1" to `POST /api/inbound/sms` (router in `services/api/routers/inbound.py`,
+  logic in `inbound.py`). `ACK <code>` acknowledges through C's `ack_alert` (audit log + NOTIFY), only from the phone
+  of the person the code was sent to; repeating it is harmless; a resolved alert gives `not_allowed`.
+  `APPROVE` / `REJECT <code>` go to `services.executor.approvals.decide_by_code`.
+- Commands are case-insensitive; phone numbers are compared without spaces, dashes or brackets.
+
+## Connections from other services
+
+Public entry points (`plan_notifications`, `plan_targets`, the executor's `start_run` / `approve` / …, approvals,
+inbound) are wrapped in `db.rows.plain_rows`, so they work on any psycopg connection, including the API pool's
+dict-row connections, and restore the caller's row factory afterwards.

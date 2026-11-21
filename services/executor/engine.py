@@ -35,6 +35,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from contracts.actions import Action, ActionContext, ActionResult, Approval, effective_approval
+from db.rows import plain_rows
 from services.executor.alerts import AlertGateway, SqlAlerts
 from services.executor.templating import render_params
 
@@ -183,6 +184,7 @@ class Executor:
                 return  # the executor (or a person) continues from here
             step_id = _next_step_id(run, step_id)
 
+    @plain_rows
     def start_run(
         self,
         conn: psycopg.Connection,
@@ -203,6 +205,7 @@ class Executor:
 
     # --- people ------------------------------------------------------------------------------------------
 
+    @plain_rows
     def run_step(self, conn: psycopg.Connection, step_run_id: int, user: str, now: datetime) -> None:
         """The "run" button for an action step waiting for a person."""
         row = _get_step_run(conn, step_run_id)
@@ -210,6 +213,7 @@ class Executor:
             raise ExecutorError(f"step run {step_run_id} is not waiting to be started")
         conn.execute("UPDATE step_runs SET next_run_at = %s, started_by = %s WHERE id = %s", (now, user, step_run_id))
 
+    @plain_rows
     def mark_done(self, conn: psycopg.Connection, step_run_id: int, user: str, now: datetime) -> None:
         """Tick a manual (text) step: records who and when (spec §13 test 13)."""
         row = _get_step_run(conn, step_run_id)
@@ -221,6 +225,7 @@ class Executor:
         )
         _maybe_finish(conn, row["run_id"], now)
 
+    @plain_rows
     def approve(self, conn: psycopg.Connection, step_run_id: int, user: str, now: datetime) -> None:
         """State change only; the role check and the approval code live in feat/actions-approvals."""
         row = _get_step_run(conn, step_run_id)
@@ -235,6 +240,7 @@ class Executor:
             (row["run_id"],),
         )
 
+    @plain_rows
     def reject(self, conn: psycopg.Connection, step_run_id: int, user: str, now: datetime) -> None:
         """Rejection ends the run (spec §7)."""
         row = _get_step_run(conn, step_run_id)
@@ -246,6 +252,7 @@ class Executor:
         )
         _finish_run(conn, row["run_id"], "rejected", now)
 
+    @plain_rows
     def cancel_run(self, conn: psycopg.Connection, run_id: int, now: datetime) -> None:
         _finish_run(conn, run_id, "cancelled", now)
         conn.execute(
