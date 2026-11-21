@@ -35,6 +35,8 @@ function api(me: keyof typeof ME) {
   return stubApi({
     ...seed,
     "GET /me": ME[me],
+    "GET /me/work": { tracking: false, active: false, startedAt: null, autoStopAt: null, workedTodaySeconds: 0, recent: [] },
+    "GET /work/active": [{ userId: "anna", startedAt: "2026-11-21T08:00:00Z" }],
     "GET /suggestions": [SUGGESTION],
     "GET /unmapped": [UNMAPPED],
     "GET /runbooks/high-error-rate-payments": payments,

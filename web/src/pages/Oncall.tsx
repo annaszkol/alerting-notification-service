@@ -10,6 +10,7 @@ import { usePermissions } from "../auth/permissions";
 import { ErrorAlert } from "../components/ErrorAlert";
 import { DURATION, HHMM, TIMEZONES } from "../components/format";
 import { formatTime } from "../components/time";
+import { useAtWork } from "../work/work";
 
 export function Oncall() {
   const perms = usePermissions();
@@ -41,6 +42,7 @@ export function Oncall() {
 
 function TeamRotation({ team, schedule, canEdit, name }: { team: Team; schedule?: OncallSchedule; canEdit: boolean; name: (id?: string | null) => string }) {
   const [editing, setEditing] = useState(false);
+  const atWork = new Set((useAtWork().data ?? []).map((p) => p.userId));
   return (
     <Card withBorder>
       <Group justify="space-between" mb="xs">
@@ -63,6 +65,11 @@ function TeamRotation({ team, schedule, canEdit, name }: { team: Team; schedule?
             <Text size="xs" c="dimmed">
               until {formatTime(schedule.currentUntil)}
             </Text>
+            {schedule.currentUserId && atWork.has(schedule.currentUserId) && (
+              <Badge color="teal" variant="light" title="Clicked Start work">
+                at work
+              </Badge>
+            )}
           </Group>
           <Text size="sm" c="dimmed">
             Shifts of {schedule.shiftLength}, handover at {schedule.handoffTime} ({schedule.timezone}), from {schedule.startsOn}

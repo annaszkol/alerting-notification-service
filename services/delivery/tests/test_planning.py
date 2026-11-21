@@ -250,3 +250,57 @@ def test_planner_works_on_dict_row_connections(database):
         assert {n.user_id for n in result.notifications} == {"anna", "bob"}
         assert c.row_factory is dict_row  # restored for the caller
         c.rollback()
+
+
+# --- work time start / stop (spec §6 "Czas pracy") ----------------------------------------------------
+
+
+AWAY = StaticDirectory(DIRECTORY.teams, away_users=frozenset({"anna", "dave"}))
+
+
+@pytest.mark.parametrize(
+    ("route", "severity", "expected"),
+    [
+        # away: only the UI feed
+        ([{"to": {"user": "anna"}, "channels": ["sms", "email", "ui"]}], Severity.ERROR, [("anna", "ui")]),
+        ([{"to": {"team": "rates"}, "channels": ["email"]}], Severity.ERROR, [("bob", "email")]),
+        # a critical phone call always goes through
+        ([{"to": {"user": "anna"}, "channels": ["phone", "sms"]}], Severity.CRITICAL, [("anna", "phone")]),
+        ([{"to": {"user": "anna"}, "channels": ["phone"]}], Severity.ERROR, []),
+        # the on-call person gets everything, at work or not
+        ([{"to": {"oncall": "settlements"}, "channels": ["sms"]}], Severity.ERROR, [("carol", "sms"), ("dave", "sms")]),
+        # preferences and schedules are filtered the same way
+        ([{"to": {"user": "anna"}, "channels": "preferences"}], Severity.CRITICAL, []),
+    ],
+)  # fmt: skip
+def test_away_people_get_only_the_ui_feed(route, severity, expected):
+    assert plan_targets(None, AWAY, route, NOW, severity) == [(u, Channel(c)) for u, c in expected]
+
+
+def test_people_without_work_tracking_are_unchanged():
+    route = [{"to": {"user": "bob"}, "channels": ["sms"]}]
+    assert plan_targets(None, AWAY, route, NOW, Severity.ERROR) == [("bob", Channel.SMS)]
+
+
+@pytest.mark.db
+def test_sql_away_follows_sessions_and_the_12_hour_limit(conn):
+    from datetime import timedelta
+
+    from services.delivery.presence import away_users, close_stale_sessions
+
+    conn.execute("TRUNCATE work_sessions, work_tracking")
+    conn.execute("INSERT INTO work_tracking (user_id, enabled) VALUES ('anna', true), ('bob', true), ('carol', false)")
+    conn.execute("INSERT INTO work_sessions (user_id, started_at) VALUES ('bob', %s)", (NOW - timedelta(hours=1),))
+    conn.execute("INSERT INTO work_sessions (user_id, started_at) VALUES ('anna', %s)", (NOW - timedelta(hours=13),))
+    # anna forgot Stop 13 h ago: away; bob is at work; carol switched tracking off; dave never used it
+    assert away_users(conn, ["anna", "bob", "carol", "dave"], NOW) == {"anna"}
+    assert SqlDirectory().away(conn, ["anna", "bob"], NOW) == {"anna"}
+
+    sms = [{"to": {"team": "rates"}, "channels": ["sms"]}]
+    assert plan_targets(conn, SqlDirectory(), sms, NOW, Severity.ERROR) == [("bob", Channel.SMS)]
+
+    assert close_stale_sessions(conn, NOW) == 1
+    ended = conn.execute("SELECT ended_at, ended_how FROM work_sessions WHERE user_id = 'anna'").fetchone()
+    assert ended == (NOW - timedelta(hours=1), "auto")
+    assert close_stale_sessions(conn, NOW) == 0
+    conn.rollback()

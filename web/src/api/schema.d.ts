@@ -55,6 +55,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/work": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Am I at work, since when, today's total, recent sessions */
+        get: operations["getMyWork"];
+        /** Switch "notify me only while at work" on or off */
+        put: operations["setMyWorkTracking"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/work/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start working (opens a session, switches tracking on); starting twice keeps the open session */
+        post: operations["startWork"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/work/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["stopWork"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/work/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** People who track their work time and are at work now */
+        get: operations["listAtWork"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/alerts": {
         parameters: {
             query?: never;
@@ -810,6 +878,32 @@ export interface components {
                 role: components["schemas"]["TeamRole"];
             }[];
         };
+        WorkSession: {
+            /** Format: date-time */
+            startedAt: string;
+            /** Format: date-time */
+            endedAt: string | null;
+            /**
+             * @description auto = closed after 12 h without Stop
+             * @enum {unknown}
+             */
+            endedHow: "user" | "auto" | null;
+        };
+        WorkStatus: {
+            /** @description true: email / SMS / phone only while at work (on-call and critical phone calls excepted) */
+            tracking: boolean;
+            active: boolean;
+            /** Format: date-time */
+            startedAt: string | null;
+            /**
+             * Format: date-time
+             * @description a session counts for 12 h at most
+             */
+            autoStopAt: string | null;
+            /** @description today in the person's time zone */
+            workedTodaySeconds: number;
+            recent: components["schemas"]["WorkSession"][];
+        };
         AlertSummary: {
             id: number;
             /** @description null when the rule was deleted */
@@ -1535,6 +1629,117 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    getMyWork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkStatus"];
+                };
+            };
+        };
+    };
+    setMyWorkTracking: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    tracking: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkStatus"];
+                };
+            };
+        };
+    };
+    startWork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description At work */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkStatus"];
+                };
+            };
+        };
+    };
+    stopWork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Not at work any more */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkStatus"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listAtWork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description People at work */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        userId: string;
+                        /** Format: date-time */
+                        startedAt: string;
+                    }[];
+                };
+            };
         };
     };
     listAlerts: {
