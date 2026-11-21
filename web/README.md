@@ -12,8 +12,13 @@ Types are generated from the API contract: `npm run gen:api` → `src/api/schema
 | `src/pages/Login.tsx` | mock login: pick a seeded user |
 | `src/pages/Feed.tsx` | P1 live feed with team / severity / state / title filters |
 | `src/pages/AlertDetail.tsx` | P1 alert details: fields, count, ack / resolve, red banner for undelivered notifications, runbooks, notifications, timeline |
+| `src/runbooks/RunbookPanel.tsx` | runbook on the alert page: rendered steps, start run, Run / Done / Approve / Reject per step, who did what |
+| `src/pages/Approvals.tsx` | approvals I can decide (or all pending), approve / reject |
+| `src/pages/ApprovalLink.tsx` | page behind the email link (`/approvals/:token`), no sign-in; 404 / 409 / 410 explained |
+| `src/pages/Runbooks.tsx` | runbooks with canonical steps and original text; managers approve and switch auto mode |
 
-Routes: `/login`, `/` (feed), `/alerts/:id`, `/a/:id` (short link from SMS).
+Routes: `/login`, `/` (feed), `/alerts/:id`, `/a/:id` (short link from SMS), `/approvals`, `/approvals/:token`
+(email link, no sign-in), `/runbooks`.
 
 ## Run
 

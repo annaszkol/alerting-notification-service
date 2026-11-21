@@ -1,14 +1,17 @@
-import { AppShell, Badge, Button, Group, Text } from "@mantine/core";
+import { Anchor, AppShell, Badge, Button, Group, Text } from "@mantine/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api, getToken, LOGOUT_EVENT, setToken } from "./api/client";
 import type { Me } from "./api/types";
 import { LiveProvider, useLive } from "./feed/live";
 import { AlertDetail } from "./pages/AlertDetail";
+import { ApprovalLink } from "./pages/ApprovalLink";
+import { Approvals } from "./pages/Approvals";
 import { Feed } from "./pages/Feed";
 import { Login } from "./pages/Login";
+import { Runbooks } from "./pages/Runbooks";
 
 export function App() {
   const [token, setTokenState] = useState(getToken());
@@ -29,6 +32,8 @@ export function App() {
     <LiveProvider token={token}>
       <Routes>
         <Route path="/login" element={<Login onLogin={setTokenState} />} />
+        {/* email approve / reject link (spec §6): works without signing in */}
+        <Route path="/approvals/:token" element={<ApprovalLink />} />
         <Route path="/*" element={token ? <Shell /> : <RedirectToLogin />} />
       </Routes>
     </LiveProvider>
@@ -54,7 +59,18 @@ function Shell() {
     <AppShell header={{ height: 56 }} padding="md">
       <AppShell.Header px="md">
         <Group h="100%" justify="space-between">
-          <Text fw={700}>Alerting</Text>
+          <Group gap="lg">
+            <Text fw={700}>Alerting</Text>
+            <Anchor component={Link} to="/" size="sm">
+              Alerts
+            </Anchor>
+            <Anchor component={Link} to="/approvals" size="sm">
+              Approvals
+            </Anchor>
+            <Anchor component={Link} to="/runbooks" size="sm">
+              Runbooks
+            </Anchor>
+          </Group>
           <Group gap="sm">
             <Badge color={color} variant="dot" title="Live updates">
               {live.status}
@@ -77,6 +93,8 @@ function Shell() {
         <Routes>
           <Route path="/" element={<Feed />} />
           <Route path="/alerts/:id" element={<AlertDetail />} />
+          <Route path="/approvals" element={<Approvals />} />
+          <Route path="/runbooks" element={<Runbooks />} />
           <Route path="/a/:id" element={<ShortLink />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
